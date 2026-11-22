@@ -200,9 +200,9 @@ packaging/android/build-apk.sh --version 0.1.0
 ```
 
 The finished files are written to `dist/`. The AppImage script downloads pinned
-linuxdeploy binaries and verifies their SHA-256 checksums before use. The APK
-script configures the `android-release` preset, builds the unsigned APK, aligns
-and signs it, and verifies the result.
+linuxdeploy binaries and a pinned type2 AppImage runtime, and verifies their
+SHA-256 checksums before use. The APK script configures the `android-release`
+preset, builds the unsigned APK, aligns and signs it, and verifies the result.
 
 Both workflows run a smoke test before uploading:
 

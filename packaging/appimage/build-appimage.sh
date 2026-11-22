@@ -15,6 +15,8 @@
 # are already present.
 set -euo pipefail
 
+trap 'status=$?; echo "error: AppImage packaging failed at line $LINENO (exit $status)" >&2' ERR
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/../.." && pwd)
 
@@ -31,6 +33,11 @@ linuxdeploy_version="1-alpha-20251107-1"
 linuxdeploy_sha256="c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"
 plugin_version="1-alpha-20250213-1"
 plugin_sha256="15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724"
+# appimagetool downloads this runtime at packaging time by default. Pin it so
+# CI does not depend on an unpinned GitHub release download at the very end of
+# the build.
+runtime_version="20251108"
+runtime_sha256="2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
 
 usage() {
   cat <<'EOF'
@@ -147,6 +154,10 @@ fetch_tool \
   "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/${plugin_version}/linuxdeploy-plugin-qt-x86_64.AppImage" \
   "$tools_dir/linuxdeploy-plugin-qt-x86_64.AppImage" \
   "$plugin_sha256"
+fetch_tool \
+  "https://github.com/AppImage/type2-runtime/releases/download/${runtime_version}/runtime-x86_64" \
+  "$tools_dir/runtime-x86_64" \
+  "$runtime_sha256"
 
 # Install the application into a private AppDir. The CMake install rules put
 # the binary under usr/bin, the desktop entry under usr/share/applications and
@@ -173,6 +184,7 @@ export LD_LIBRARY_PATH="$qt_dir/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export QML_SOURCES_PATHS="$repo_root/app"
 export APPIMAGE_EXTRACT_AND_RUN=1
 export ARCH=x86_64
+export LDAI_RUNTIME_FILE="$tools_dir/runtime-x86_64"
 
 (
   cd "$work_dir"

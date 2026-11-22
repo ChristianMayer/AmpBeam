@@ -270,9 +270,11 @@ QT_HOST_PATH=/path/to/Qt/6.7.3/gcc_64 \
 ```
 
 The script installs into a private `AppDir` with
-`cmake --install`, downloads pinned `linuxdeploy` and `linuxdeploy-plugin-qt`
-AppImages into `build/appimage-tools/`, verifies their checksums and writes
-`dist/AmpBeam-<version>-x86_64.AppImage`.
+`cmake --install`, downloads pinned `linuxdeploy`, `linuxdeploy-plugin-qt` and
+type2 AppImage runtime files into `build/appimage-tools/`, verifies their
+checksums and writes `dist/AmpBeam-<version>-x86_64.AppImage`. Pinning the
+runtime also avoids an unpinned download by `appimagetool` at the end of the
+build.
 
 `QML_SOURCES_PATHS` points the Qt plugin at `app/`, so the Qt Quick modules the
 application imports are bundled. The application's own QML module is compiled
