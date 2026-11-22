@@ -76,10 +76,12 @@ asserts the documented contract: arguments, stdout TSV, stderr diagnostics, exit
 codes and the JSON files the tool writes. Nothing is linked from the CLI, so a
 refactor cannot make these tests pass accidentally.
 
-Every offline command path is covered: help/version, import validation and
-conversion, replay with both decoders, malformed frames, missing files and
-broken JSON. Connection, scan and key-injection paths need an adapter and are
-left to the bench suite.
+Every offline command path is covered: help/version, the default mirror's
+duration-bounded shutdown, import validation and conversion, replay with both
+decoders, offline mirror rendering (including an undecoded frame), CSV export
+(rows, header, decoder forcing and argument/file validation), malformed frames,
+missing files and broken JSON. Connection, scan and key-injection paths need an
+adapter and are left to the bench suite.
 
 ### Unit — `tests/tst_ble.cpp`
 

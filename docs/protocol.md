@@ -166,6 +166,18 @@ Other functions and decimal point codes are **unknown** and are not decoded:
 | Continuity | (1, none) |
 | NCV | (1, none) |
 
+### 4.3.1 What "range" means in a frame
+
+The frame carries **no full-scale range code**. The decimal point code and SI
+prefix fix the displayed resolution (DCV decimal point 3 is 1 mV steps), and that
+resolution is the only range information available; `Measurement::displayDecimals`
+exposes it so a display can reproduce the LCD digits.
+
+State bit 2 is AUTO (**verified**). It stays clear once the meter leaves
+automatic ranging: in the Range-key capture AUTO was set before the first press
+and clear after it. Continuity and diode never set the bit because they have no
+ranges (§5.1), so an absent bit must not be reported as "manual" for them.
+
 ### 4.4 Value word
 
 24 bit (**verified**):

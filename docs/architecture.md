@@ -12,7 +12,7 @@
 ```
 +------------------------------------------------------------+
 | app/  Qt Quick UI (QML) + AppController                    |
-| cli/  ampbeam-cli: scan, trace, import, replay             |
+| cli/  ampbeam-cli: mirror, CSV, scan, trace, import, replay   |
 +---------------------------^--------------------------------+
                             | raw QByteArray notifications
 +---------------------------+--------------------------------+

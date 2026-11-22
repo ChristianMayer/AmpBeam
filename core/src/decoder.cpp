@@ -35,6 +35,7 @@ namespace {
   flags.hold = meterHasState(frame.state, MeterState::Hold);
   flags.relative = meterHasState(frame.state, MeterState::Relative);
   flags.autoRange = meterHasState(frame.state, MeterState::AutoRange);
+  flags.minMax = meterHasState(frame.state, MeterState::MinMax);
   flags.overload = frame.primary.status == MeterValueStatus::Overload;
   return flags;
 }
@@ -149,6 +150,10 @@ DecodedFrame MeterDecoder::decode(std::span<const std::uint8_t> frame) const {
   measurement.unit = parsed.primary.unit;
   measurement.quantity = parsed.primary.quantity;
   measurement.currentType = currentTypeFor(parsed.primary.range.gear);
+  measurement.gear = parsed.primary.range.gear;
+  measurement.displayDecimals = parsed.primary.range.gear == MeterGear::Ncv
+                                    ? -1
+                                    : static_cast<int>(parsed.primary.range.decimalPoint);
   measurement.flags = flagsFor(parsed);
 
   // NCV is not a decimal measurement: the frame's magnitude counts the field
@@ -167,6 +172,10 @@ DecodedFrame MeterDecoder::decode(std::span<const std::uint8_t> frame) const {
     measurement.secondary.value = numericValue(*parsed.secondary);
     measurement.secondary.unit = parsed.secondary->unit;
     measurement.secondary.quantity = parsed.secondary->quantity;
+    measurement.secondary.displayDecimals =
+        parsed.secondary->range.gear == MeterGear::Ncv
+            ? -1
+            : static_cast<int>(parsed.secondary->range.decimalPoint);
   }
 
   std::string detail = "meter: ";

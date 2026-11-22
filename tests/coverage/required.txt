@@ -8,8 +8,10 @@
 #
 # One source path per line, relative to the repository root.
 core/src/capture.cpp
+core/src/csv.cpp
 core/src/decoder.cpp
 core/src/hex.cpp
 core/src/measurement.cpp
 core/src/meter.cpp
+core/src/monitor.cpp
 core/src/selection.cpp

@@ -51,17 +51,38 @@ ctest --preset linux-coverage        # includes the 100% core coverage gate
 ## Run
 
 ```bash
+./build/linux-debug/cli/ampbeam-cli            # default: discover and mirror the display
 ./build/linux-debug/cli/ampbeam-cli --scan
-./build/linux-debug/cli/ampbeam-cli --device auto     # only if exactly one meter advertises the service
+./build/linux-debug/cli/ampbeam-cli --device auto     # tracing mode; only if exactly one meter advertises the service
 ./build/linux-debug/cli/ampbeam-cli --device <address>
 ./build/linux-debug/app/ampbeam
 ```
 
-`--scan` prints `rssi`, name, address and advertised services. `--device auto`
-scans for `scan-timeout` milliseconds, prefers a device that advertises the
-meter service, and falls back to the only discovered device when service UUIDs
-are unavailable. Add `--name <advertised name>` to filter by name. It refuses to
-guess when several devices are possible.
+Without an action option the CLI is a live mirror: it scans, connects, renders
+one self-overwriting line (mode, value, unit, indicators) and reconnects with
+backoff after a failed attempt or a lost link. A quiet stream is not treated as
+an error, because the meter legitimately sends few frames in some modes.
+`--mirror` requests that mode explicitly, `--plain` prints one line per reading
+instead of overwriting (automatic when stdout is not a terminal), `--verbose`
+appends the decoded frame fields (`gear`, `dp`, `raw`, `states`), and
+`--duration N` ends the session after N seconds. `--csv <file>` exports every
+decoded reading to CSV and selects the meter decoder. The same renderer runs on a
+fixture: `ampbeam-cli --replay <fixture> --mirror --plain`. See
+[`../cli/README.md`](../cli/README.md) for the full option and CSV reference.
+
+Values keep the decimal places the frame reports (`6.000 V`), and `[manual]`
+appears when the AUTO bit is clear on a function with ranges. The frame carries
+the decimal point and SI prefix but no full-scale range label, so this is all
+the range information the protocol contains.
+
+Each mirror scan attempt lasts 5 s unless `--scan-timeout` is given. `--scan`
+prints `rssi`, name, address and advertised services. `--device auto` scans for
+`scan-timeout` milliseconds, prefers a device that advertises the meter service,
+and falls back to the only discovered device when service UUIDs are unavailable.
+Add `--name <advertised name>` to filter by name: with a name the scan stops as
+soon as that device appears. It refuses to guess when several devices are
+possible, which is common when BlueZ hides service UUIDs and other BLE devices
+are nearby; pass `--name` or `--device <address>` then.
 
 `ampbeam-cli --help` lists all options, including GATT UUID overrides, `--import`
 (capture log → JSON fixture) and `--replay`.

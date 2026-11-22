@@ -40,7 +40,7 @@ series 61 is the only series whose 15 byte format has been confirmed.
 | `core` (`ampbeam_core`) | Dependency-free C++23 measurement model, hex helpers, GATT profiles, capture/fixture handling and the `FrameDecoder` implementations. |
 | `ble` (`ampbeam_ble`) | Qt 6 Bluetooth transport: device discovery, connection, service discovery, notification subscription and command writes. One implementation for Linux (BlueZ over D-Bus) and Android. |
 | `app` | Qt Quick application (`ampbeam`) for Linux desktop and Android. |
-| `cli` (`ampbeam-cli`) | Headless scanner/tracer. Emits machine-readable TSV captures and converts them into replayable JSON fixtures. |
+| `cli` (`ampbeam-cli`) | Headless mirror, CSV export, scanner and tracer. Mirrors the meter display by default and emits machine-readable TSV captures that convert into replayable JSON fixtures. Usage: [`cli/README.md`](cli/README.md). |
 | `tests` | White-box, fixture black-box, CLI black-box, transport and controller suites plus the coverage gate. |
 | `assets` | Branding: the official logo and where each derived icon belongs. |
 | `CHANGELOG.md` | Release history and known limitations. |
@@ -102,9 +102,65 @@ adb install -r build/android-arm64/app/android-build/build/outputs/apk/debug/and
 Linux Bluetooth requirements and troubleshooting are documented in
 [docs/development.md](docs/development.md).
 
+## Using the CLI as a computer multimeter
+
+Run `ampbeam-cli` without arguments. It discovers the meter, connects, and keeps
+the display mirrored on one line that is overwritten as each frame arrives
+(about five times per second):
+
+```
+DCV  0.0001 V  [manual]
+DCV  0.5692 V  [auto]
+DCV  0.107 mV  [manual]  [minmax]  |  MAX 9.371 mV
+NCV  2  [auto]
+```
+
+The line carries the mode (`DCV`, `ACV`, `DCA`, `ACA`, `RES`, `CAP`, `FREQ`,
+`DUTY`, `DIODE`, `CONT`, `NCV`), the reading with its unit, and the confirmed
+indicators (`HOLD`, `REL`, `AUTO`, `MANUAL`, `MINMAX`, overload). Values keep the
+decimal places the meter displays (`6.000 V`, not `6 V`), so the selected range
+bucket is visible, and `[manual]` appears when the AUTO bit is clear on a
+function that has ranges. A frame the decoder cannot prove is shown as `? …`
+with its bytes instead of a reading. The frame carries the decimal point and SI
+prefix but **no full-scale range label**; that is the most range information the
+protocol contains. `--verbose` appends the decoded fields (`gear`, `dp`, `raw`,
+`states`).
+
+```bash
+ampbeam-cli                     # discover and mirror
+ampbeam-cli --name <name>       # filter the scan by advertised name
+ampbeam-cli --device <address> --mirror
+ampbeam-cli --duration 60       # stop after a minute
+ampbeam-cli --plain             # one line per reading (automatic when piped)
+ampbeam-cli --verbose           # append gear/dp/raw/states to each line
+ampbeam-cli --csv readings.csv  # also export every reading to CSV
+```
+
+See [`cli/README.md`](cli/README.md) for every option and the CSV column
+reference.
+
+The mirror reconnects automatically after a lost link or a refused/failed
+connection, and it never exits on its own — stop it with Ctrl+C. A quiet stream
+is not an error: the meter sends few frames in some modes (HOLD, continuity,
+steady readings).
+
+Each mirror scan attempt lasts 5 s (`--scan-timeout` overrides it). A scan that
+finds several BLE devices but no advertised meter service is refused rather than
+guessed, because BlueZ often hides service UUIDs. Pass `--name <advertised
+name>` — the scan then stops as soon as that name appears — or `--device
+<address>` to connect immediately. Without a name the first connection may take
+several scan attempts and their backoff.
+
+The same rendering works offline, which is handy to check a fixture:
+
+```bash
+ampbeam-cli --replay tests/fixtures/meter-hardware-minmax-millivolt.json --mirror --plain
+```
+
 ## Capturing protocol data
 
-`ampbeam-cli` prints one line per notification:
+In tracing mode (`--device <address>` without `--mirror`, or `--replay` without
+`--mirror`), `ampbeam-cli` prints one line per notification:
 
 ```
 <epochMs>\t<length>\t<hex bytes>\t<detail>

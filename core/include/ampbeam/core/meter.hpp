@@ -17,24 +17,7 @@
 
 namespace ampbeam {
 
-/// Measurement family encoded in a frame's gear word.
-///
-/// The numeric values are the gear codes used on the wire, as described in
-/// `docs/protocol.md`.
-enum class MeterGear : std::uint8_t {
-  Unknown = 0xFF,
-  DcVoltage = 0,
-  AcVoltage = 1,
-  DcCurrent = 2,
-  AcCurrent = 3,
-  Resistance = 4,
-  Capacitance = 5,
-  Frequency = 6,
-  DutyCycle = 7,
-  Diode = 10,
-  Continuity = 11,
-  Ncv = 13,
-};
+// MeterGear lives in measurement.hpp because every Measurement carries it.
 
 /// SI prefix encoded in the counting-unit field. The field has three bits, so
 /// all eight values are real and are mapped to the standard SI magnitude of the

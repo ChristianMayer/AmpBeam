@@ -25,6 +25,27 @@ enum class Quantity : std::uint8_t {
   Diode,
 };
 
+/// Measurement family encoded in a frame's gear word.
+///
+/// The numeric values are the gear codes used on the wire, as described in
+/// `docs/protocol.md`. Kept next to the measurement model because a reading
+/// carries its mode, so a display can name it even for functions whose quantity
+/// is not a decimal measurement (NCV reports a field level).
+enum class MeterGear : std::uint8_t {
+  Unknown = 0xFF,
+  DcVoltage = 0,
+  AcVoltage = 1,
+  DcCurrent = 2,
+  AcCurrent = 3,
+  Resistance = 4,
+  Capacitance = 5,
+  Frequency = 6,
+  DutyCycle = 7,
+  Diode = 10,
+  Continuity = 11,
+  Ncv = 13,
+};
+
 /// Display unit. Deliberately explicit instead of a prefix + base unit pair so
 /// the decoder can report exactly what the meter shows.
 ///
@@ -65,6 +86,9 @@ struct Flags {
   /// Relative measurement (REL): the displayed value is relative to a stored
   /// reference.
   bool relative = false;
+  /// Min/Max/Avg view (state bit 5). The second reading carries MAX; MIN and
+  /// AVG are not transmitted.
+  bool minMax = false;
 
   friend bool operator==(const Flags&, const Flags&) = default;
 };
@@ -85,6 +109,9 @@ struct SecondaryReading {
   double value = 0.0;
   Unit unit = Unit::None;
   Quantity quantity = Quantity::Unknown;
+  /// Decimal places the meter displays for this value; -1 when the frame does
+  /// not describe a scaled decimal value.
+  int displayDecimals = -1;
 
   friend bool operator==(const SecondaryReading&, const SecondaryReading&) = default;
 };
@@ -94,8 +121,15 @@ struct Measurement {
   /// or overload).
   double value = 0.0;
   Unit unit = Unit::None;
+  /// Decimal places the meter displays for `value` (the frame's decimal point
+  /// code). -1 when the frame carries no scaled decimal value (NCV field
+  /// level) or the reading did not come from a frame.
+  int displayDecimals = -1;
   Quantity quantity = Quantity::Unknown;
   CurrentType currentType = CurrentType::None;
+  /// Measurement mode the frame reported. Unknown when the decoder did not
+  /// establish one.
+  MeterGear gear = MeterGear::Unknown;
   Flags flags{};
   /// Second reading a frame can carry alongside the main one, e.g. the duty
   /// cycle shown next to a frequency or the frequency shown under an AC voltage.
@@ -118,6 +152,11 @@ struct Measurement {
 /// Formats a number with at most `significantDigits` significant digits and no
 /// trailing zeros. Uses the classic C locale ("." decimal separator).
 [[nodiscard]] std::string formatNumber(double value, int significantDigits = 5);
+
+/// Formats a number with exactly `decimals` digits after the decimal point, as
+/// the meter's LCD does (e.g. 6 -> "6.000" for 3 decimals). A negative
+/// `decimals` is treated as 0. Uses the classic C locale.
+[[nodiscard]] std::string formatFixedNumber(double value, int decimals);
 
 /// Formats a reading for display, e.g. "4.998 V DC [hold]".
 [[nodiscard]] std::string format(const Measurement& measurement);

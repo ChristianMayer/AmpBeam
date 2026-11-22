@@ -4,10 +4,12 @@
 # Builds the dependency-free protocol library.
 add_library(ampbeam_core STATIC
   src/capture.cpp
+  src/csv.cpp
   src/decoder.cpp
   src/hex.cpp
   src/measurement.cpp
   src/meter.cpp
+  src/monitor.cpp
   src/selection.cpp
 )
 

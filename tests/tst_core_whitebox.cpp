@@ -12,10 +12,12 @@
 // both at once.
 
 #include "ampbeam/core/capture.hpp"
+#include "ampbeam/core/csv.hpp"
 #include "ampbeam/core/decoder.hpp"
 #include "ampbeam/core/hex.hpp"
 #include "ampbeam/core/measurement.hpp"
 #include "ampbeam/core/meter.hpp"
+#include "ampbeam/core/monitor.hpp"
 #include "ampbeam/core/selection.hpp"
 
 #include <QTest>
@@ -108,6 +110,11 @@ private slots:
   void quantityNames();
   void numberFormatting();
   void measurementFormatting();
+  void monitorModeNames();
+  void monitorLineFormatting();
+  void csvFormatting();
+  void reconnectPolicyBackoff();
+  void decoderCarriesGearAndMinMax();
   void meterDecodesEveryValueStatus();
   void meterDecodesEveryDecimalPoint();
   void meterUnitAndPrefixMatrix();
@@ -203,6 +210,20 @@ void CoreWhiteBoxTest::numberFormatting() {
   QCOMPARE(q(ampbeam::formatNumber(4.998)), QStringLiteral("4.998"));
   QCOMPARE(q(ampbeam::formatNumber(1234567.0)), QStringLiteral("1.2346e+06"));
   QCOMPARE(q(ampbeam::formatNumber(1.0, 3)), QStringLiteral("1"));
+
+  // The LCD keeps its decimal places; the mirror reproduces them.
+  QCOMPARE(q(ampbeam::formatFixedNumber(6.0, 3)), QStringLiteral("6.000"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(0.0, 4)), QStringLiteral("0.0000"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(-0.0, 2)), QStringLiteral("0.00"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(-2.5, 3)), QStringLiteral("-2.500"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(4.998, 3)), QStringLiteral("4.998"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(7.0, -1)), QStringLiteral("7"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(std::numeric_limits<double>::quiet_NaN(), 2)),
+           QStringLiteral("nan"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(std::numeric_limits<double>::infinity(), 2)),
+           QStringLiteral("inf"));
+  QCOMPARE(q(ampbeam::formatFixedNumber(-std::numeric_limits<double>::infinity(), 2)),
+           QStringLiteral("-inf"));
 }
 
 void CoreWhiteBoxTest::measurementFormatting() {
@@ -215,12 +236,13 @@ void CoreWhiteBoxTest::measurementFormatting() {
   measurement.flags.hold = true;
   measurement.flags.autoRange = true;
   measurement.flags.relative = true;
+  measurement.flags.minMax = true;
   measurement.secondary.present = true;
   measurement.secondary.value = 2.5;
   measurement.secondary.unit = Unit::Hertz;
 
   QCOMPARE(q(ampbeam::format(measurement)),
-           QStringLiteral("1.5 V DC [overload] [hold] [auto] [rel] / 2.5 Hz"));
+           QStringLiteral("1.5 V DC [overload] [hold] [auto] [rel] [minmax] / 2.5 Hz"));
 
   measurement.flags = {};
   measurement.currentType = CurrentType::AC;
@@ -237,6 +259,239 @@ void CoreWhiteBoxTest::measurementFormatting() {
   measurement.secondary.value = std::numeric_limits<double>::quiet_NaN();
   measurement.secondary.unit = Unit::None;
   QCOMPARE(q(ampbeam::format(measurement)), QStringLiteral("--- / ---"));
+}
+
+void CoreWhiteBoxTest::monitorModeNames() {
+  struct Case {
+    MeterGear gear;
+    const char* mode;
+  };
+  const std::array<Case, 12> cases{{
+      {MeterGear::DcVoltage, "DCV"},
+      {MeterGear::AcVoltage, "ACV"},
+      {MeterGear::DcCurrent, "DCA"},
+      {MeterGear::AcCurrent, "ACA"},
+      {MeterGear::Resistance, "RES"},
+      {MeterGear::Capacitance, "CAP"},
+      {MeterGear::Frequency, "FREQ"},
+      {MeterGear::DutyCycle, "DUTY"},
+      {MeterGear::Diode, "DIODE"},
+      {MeterGear::Continuity, "CONT"},
+      {MeterGear::Ncv, "NCV"},
+      {MeterGear::Unknown, "?"},
+  }};
+  for (const auto& entry : cases) {
+    ampbeam::Measurement measurement;
+    measurement.gear = entry.gear;
+    QCOMPARE(q(ampbeam::monitorModeName(measurement)), q(entry.mode));
+  }
+}
+
+void CoreWhiteBoxTest::monitorLineFormatting() {
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.value = 4.998;
+  measurement.unit = Unit::Volt;
+  measurement.quantity = Quantity::Voltage;
+  measurement.currentType = CurrentType::DC;
+  measurement.displayDecimals = 3;
+  measurement.flags.autoRange = true;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("DCV  4.998 V  [auto]"));
+
+  // The LCD resolution is preserved: 6 V on a 3-decimal range is 6.000 V.
+  measurement.value = 6.0;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("DCV  6.000 V  [auto]"));
+
+  // AUTO clear on a rangeable function is the verified manual-range state.
+  measurement.flags = {};
+  measurement.value = 4.769;
+  measurement.unit = Unit::Millivolt;
+  measurement.flags.hold = true;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("DCV  4.769 mV  [hold]  [manual]"));
+
+  // Continuity has no ranges, so an absent AUTO bit is not "manual".
+  measurement = {};
+  measurement.gear = MeterGear::Continuity;
+  measurement.value = 0.0;
+  measurement.unit = Unit::Ohm;
+  measurement.displayDecimals = 1;
+  QCOMPARE(QString::fromStdString(ampbeam::monitorLine(measurement)),
+           QStringLiteral("CONT  0.0 Ω"));
+
+  // MinMax view: the second reading is the confirmed MAX value.
+  measurement = {};
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.value = 0.107;
+  measurement.unit = Unit::Millivolt;
+  measurement.displayDecimals = 3;
+  measurement.flags.minMax = true;
+  measurement.secondary.present = true;
+  measurement.secondary.value = 9.371;
+  measurement.secondary.unit = Unit::Millivolt;
+  measurement.secondary.displayDecimals = 3;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)),
+           QStringLiteral("DCV  0.107 mV  [manual]  [minmax]  |  MAX 9.371 mV"));
+
+  // REL mode: the second reading is the stored reference.
+  measurement.flags = {};
+  measurement.flags.relative = true;
+  measurement.value = 2.584;
+  measurement.secondary.value = -2.432;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)),
+           QStringLiteral("DCV  2.584 mV  [manual]  [rel]  |  REF -2.432 mV"));
+
+  // A secondary reading without a REL/MinMax meaning is shown unlabelled.
+  measurement.flags = {};
+  measurement.value = 49.98;
+  measurement.unit = Unit::Hertz;
+  measurement.gear = MeterGear::Frequency;
+  measurement.displayDecimals = 2;
+  measurement.secondary.value = 32.8;
+  measurement.secondary.displayDecimals = 2;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)),
+           QStringLiteral("FREQ  49.98 Hz  [manual]  |  32.80 mV"));
+
+  // Overload / blank display and a NaN secondary carry no number.
+  measurement = {};
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.value = std::numeric_limits<double>::quiet_NaN();
+  measurement.unit = Unit::Volt;
+  measurement.flags.overload = true;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)),
+           QStringLiteral("DCV  --- V  [overload]  [manual]"));
+
+  // NCV is a field level, not a decimal reading: no fixed decimals, no range.
+  measurement = {};
+  measurement.gear = MeterGear::Ncv;
+  measurement.value = 1.0;
+  measurement.secondary.present = true;
+  measurement.secondary.value = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("NCV  1  |  ---"));
+
+  measurement = {};
+  measurement.gear = MeterGear::DutyCycle;
+  measurement.value = 50.0;
+  measurement.unit = Unit::Percent;
+  measurement.flags.hold = true;
+  measurement.flags.autoRange = true;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("DUTY  50 %  [hold]  [auto]"));
+
+  // Duty has no verified selectable range, so the absent AUTO bit stays silent.
+  measurement.flags = {};
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("DUTY  50 %"));
+
+  // An unknown gear value carries no range knowledge either.
+  measurement = {};
+  measurement.gear = static_cast<MeterGear>(200);
+  measurement.value = 1.0;
+  QCOMPARE(q(ampbeam::monitorLine(measurement)), QStringLiteral("?  1"));
+
+  QVERIFY(ampbeam::monitorGearHasRanges(MeterGear::DcVoltage));
+  QVERIFY(ampbeam::monitorGearHasRanges(MeterGear::Frequency));
+  QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::DutyCycle));
+  QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::Diode));
+  QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::Continuity));
+  QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::Ncv));
+  QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::Unknown));
+  QVERIFY(!ampbeam::monitorGearHasRanges(static_cast<MeterGear>(200)));
+}
+
+void CoreWhiteBoxTest::csvFormatting() {
+  QCOMPARE(q(ampbeam::csvHeader()),
+           QStringLiteral("received_ms,time,mode,value,unit,current,decimals,overload,hold,"
+                          "relative,auto,manual,minmax,secondary_role,secondary_value,"
+                          "secondary_unit,secondary_decimals"));
+
+  ampbeam::Measurement measurement;
+  measurement.receivedAtMs = 1732180000123;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.value = 4.998;
+  measurement.unit = Unit::Volt;
+  measurement.displayDecimals = 3;
+  measurement.currentType = CurrentType::DC;
+  measurement.flags.autoRange = true;
+  QCOMPARE(q(ampbeam::csvRow(measurement, "2024-11-21T07:06:40.123Z")),
+           QStringLiteral("1732180000123,2024-11-21T07:06:40.123Z,DCV,4.998,V,DC,3,0,0,0,1,0,0,"
+                          ",,,"));
+
+  // Manual MinMax with a MAX secondary; an overload has no numeric value.
+  measurement.flags = {};
+  measurement.flags.minMax = true;
+  measurement.value = std::numeric_limits<double>::quiet_NaN();
+  measurement.secondary.present = true;
+  measurement.secondary.value = 9.371;
+  measurement.secondary.unit = Unit::Millivolt;
+  measurement.secondary.displayDecimals = 3;
+  QCOMPARE(q(ampbeam::csvRow(measurement, "t")),
+           QStringLiteral("1732180000123,t,DCV,,V,DC,3,0,0,0,0,1,1,MAX,9.371,mV,3"));
+
+  // REL labels the secondary as REF.
+  measurement.flags = {};
+  measurement.flags.relative = true;
+  measurement.value = 2.584;
+  measurement.secondary.value = -2.432;
+  QCOMPARE(q(ampbeam::csvRow(measurement, "t")),
+           QStringLiteral("1732180000123,t,DCV,2.584,V,DC,3,0,0,1,0,1,0,REF,-2.432,mV,3"));
+
+  // NCV has no decimal places, and its unit is empty.
+  measurement = {};
+  measurement.gear = MeterGear::Ncv;
+  measurement.value = 2.0;
+  measurement.flags.autoRange = true;
+  QCOMPARE(q(ampbeam::csvRow(measurement, "t")), QStringLiteral("0,t,NCV,2,,,,0,0,0,1,0,0,,,,"));
+
+  // AC current and a quoted timestamp exercise the remaining fields.
+  measurement = {};
+  measurement.gear = MeterGear::AcCurrent;
+  measurement.value = 0.123;
+  measurement.unit = Unit::Milliampere;
+  measurement.displayDecimals = 3;
+  measurement.currentType = CurrentType::AC;
+  measurement.flags.autoRange = true;
+  QCOMPARE(q(ampbeam::csvRow(measurement, "a,\"b\"")),
+           QStringLiteral("0,\"a,\"\"b\"\"\",ACA,0.123,mA,AC,3,0,0,0,1,0,0,,,,"));
+}
+
+void CoreWhiteBoxTest::reconnectPolicyBackoff() {
+  ampbeam::ReconnectPolicy policy;
+  QCOMPARE(policy.attempts(), 0U);
+  QCOMPARE(policy.nextDelayMs(), 1000);
+  QCOMPARE(policy.nextDelayMs(), 2000);
+  QCOMPARE(policy.nextDelayMs(), 4000);
+  QCOMPARE(policy.nextDelayMs(), 8000);
+  QCOMPARE(policy.nextDelayMs(), 16000);
+  QCOMPARE(policy.nextDelayMs(), 30000);
+  QCOMPARE(policy.nextDelayMs(), 30000);
+  QCOMPARE(policy.attempts(), 7U);
+
+  policy.reset();
+  QCOMPARE(policy.attempts(), 0U);
+  QCOMPARE(policy.nextDelayMs(), 1000);
+}
+
+void CoreWhiteBoxTest::decoderCarriesGearAndMinMax() {
+  const ampbeam::MeterDecoder decoder;
+
+  // NCV has no decimal quantity, so the gear is what names the mode.
+  const Bytes ncv = longFrame(gearWord(2, MeterPrefix::Nano, 13), valueWord(2));
+  const auto ncvDecoded = decoder.decode(ncv);
+  QCOMPARE(ncvDecoded.kind, ampbeam::DecodedFrame::Kind::Measurement);
+  QCOMPARE(ncvDecoded.measurement.gear, MeterGear::Ncv);
+  QCOMPARE(ncvDecoded.measurement.displayDecimals, -1);
+  QVERIFY(!ncvDecoded.measurement.flags.minMax);
+  QCOMPARE(q(ampbeam::monitorLine(ncvDecoded.measurement)), QStringLiteral("NCV  2"));
+
+  // State bit 5 toggles the verified MinMax flag.
+  const Bytes minMax = longFrame(gearWord(3, MeterPrefix::Milli, 0, true), valueWord(107),
+                                 gearWord(3, MeterPrefix::Milli, 0, true), valueWord(9371), 0x20U);
+  const auto minMaxDecoded = decoder.decode(minMax);
+  QCOMPARE(minMaxDecoded.kind, ampbeam::DecodedFrame::Kind::Measurement);
+  QCOMPARE(minMaxDecoded.measurement.gear, MeterGear::DcVoltage);
+  QCOMPARE(minMaxDecoded.measurement.displayDecimals, 3);
+  QCOMPARE(minMaxDecoded.measurement.secondary.displayDecimals, 3);
+  QVERIFY(minMaxDecoded.measurement.flags.minMax);
+  QCOMPARE(q(ampbeam::monitorLine(minMaxDecoded.measurement)),
+           QStringLiteral("DCV  0.107 mV  [manual]  [minmax]  |  MAX 9.371 mV"));
 }
 
 void CoreWhiteBoxTest::meterDecodesEveryValueStatus() {

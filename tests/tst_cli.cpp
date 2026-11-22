@@ -78,7 +78,14 @@ class CliBlackBoxTest final : public QObject {
 
 private slots:
   void versionAndHelp();
-  void noArgumentsShowsHelp();
+  void defaultActionRunsTheMirrorUntilDuration();
+  void mirrorReplayRendersReadingsOffline();
+  void mirrorReplayShowsDecodedFieldsWithVerbose();
+  void mirrorReplayRejectsTheRawDecoder();
+  void csvExportWritesReadings();
+  void csvExportRejectsTheRawDecoder();
+  void csvExportRejectsScanMode();
+  void csvExportRefusesAnUnwritableFile();
   void unknownDecoderIsRejected();
   void importRequiresAnOutputPath();
   void importRefusesMissingInput();
@@ -106,15 +113,168 @@ void CliBlackBoxTest::versionAndHelp() {
   QCOMPARE(help.exitCode, 0);
   QVERIFY(help.combined().contains(QStringLiteral("Usage:")));
   QVERIFY(help.combined().contains(QStringLiteral("--replay")));
+  QVERIFY(help.combined().contains(QStringLiteral("--mirror")));
+  QVERIFY(help.combined().contains(QStringLiteral("--csv")));
 }
 
-void CliBlackBoxTest::noArgumentsShowsHelp() {
+void CliBlackBoxTest::defaultActionRunsTheMirrorUntilDuration() {
   QTemporaryDir directory;
   QVERIFY(directory.isValid());
-  const auto result = runCli({}, directory.path());
+
+  // Without an action the CLI is a live mirror: it keeps retrying until the
+  // duration (or Ctrl+C) ends it. No adapter is needed for this contract.
+  const auto result = runCli({QStringLiteral("--duration"), QStringLiteral("1")}, directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 0);
+  QVERIFY(result.standardError.contains(QStringLiteral("mirror:")));
+}
+
+void CliBlackBoxTest::mirrorReplayRendersReadingsOffline() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+
+  QJsonArray frames;
+  QJsonObject good;
+  good.insert(QStringLiteral("hex"), QString::fromLatin1(kLongFrame));
+  frames.append(good);
+  QJsonObject undecoded;
+  undecoded.insert(QStringLiteral("hex"), QStringLiteral("01 02 03"));
+  frames.append(undecoded);
+  const QString fixture = directory.filePath(QStringLiteral("mirror.json"));
+  writeText(fixture, fixtureWithFrames(frames).toUtf8());
+
+  const auto result = runCli(
+      {QStringLiteral("--replay"), fixture, QStringLiteral("--mirror"), QStringLiteral("--plain")},
+      directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 0);
+
+  const QStringList lines = result.standardOutput.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+  QCOMPARE(lines.size(), 2);
+  QVERIFY(lines.at(0).startsWith(QStringLiteral("DCV")));
+  QVERIFY(lines.at(0).contains(QStringLiteral("4.998 V")));
+  QVERIFY(lines.at(1).startsWith(QStringLiteral("?")));
+  QVERIFY(lines.at(1).contains(QStringLiteral("undecoded")));
+}
+
+void CliBlackBoxTest::mirrorReplayShowsDecodedFieldsWithVerbose() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+
+  QJsonArray frames;
+  QJsonObject frame;
+  frame.insert(QStringLiteral("hex"), QString::fromLatin1(kLongFrame));
+  frames.append(frame);
+  const QString fixture = directory.filePath(QStringLiteral("verbose.json"));
+  writeText(fixture, fixtureWithFrames(frames).toUtf8());
+
+  const auto result = runCli({QStringLiteral("--replay"), fixture, QStringLiteral("--mirror"),
+                              QStringLiteral("--plain"), QStringLiteral("--verbose")},
+                             directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 0);
+  QVERIFY(result.standardOutput.contains(QStringLiteral("dp=3")));
+  QVERIFY(result.standardOutput.contains(QStringLiteral("raw=4998")));
+  QVERIFY(result.standardOutput.contains(QStringLiteral("[manual]")));
+}
+
+void CliBlackBoxTest::mirrorReplayRejectsTheRawDecoder() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const QString fixture = directory.filePath(QStringLiteral("f.json"));
+  writeText(fixture, fixtureWithFrames({}).toUtf8());
+
+  const auto result = runCli({QStringLiteral("--replay"), fixture, QStringLiteral("--mirror"),
+                              QStringLiteral("--decoder"), QStringLiteral("raw")},
+                             directory.path());
   QVERIFY(result.started);
   QCOMPARE(result.exitCode, 1);
-  QVERIFY(result.combined().contains(QStringLiteral("Usage:")));
+  QVERIFY(result.standardError.contains(QStringLiteral("meter decoder")));
+}
+
+void CliBlackBoxTest::csvExportWritesReadings() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+
+  QJsonArray frames;
+  QJsonObject good;
+  good.insert(QStringLiteral("receivedMs"), 42);
+  good.insert(QStringLiteral("hex"), QString::fromLatin1(kLongFrame));
+  frames.append(good);
+  QJsonObject undecoded;
+  undecoded.insert(QStringLiteral("hex"), QStringLiteral("01 02 03"));
+  frames.append(undecoded);
+  const QString fixture = directory.filePath(QStringLiteral("csv.json"));
+  writeText(fixture, fixtureWithFrames(frames).toUtf8());
+  const QString output = directory.filePath(QStringLiteral("readings.csv"));
+
+  // --csv selects the meter decoder; the undecoded frame is not a reading.
+  const auto result = runCli({QStringLiteral("--replay"), fixture, QStringLiteral("--csv"), output},
+                             directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 0);
+
+  const QByteArray written = readText(output);
+  QVERIFY(!written.isEmpty());
+  const QStringList lines = QString::fromUtf8(written).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+  QCOMPARE(lines.size(), 2);
+  QCOMPARE(lines.at(0),
+           QStringLiteral("received_ms,time,mode,value,unit,current,decimals,overload,hold,"
+                          "relative,auto,manual,minmax,secondary_role,secondary_value,"
+                          "secondary_unit,secondary_decimals"));
+  const QStringList fields = lines.at(1).split(QLatin1Char(','));
+  QCOMPARE(fields.size(), 17);
+  QCOMPARE(fields.at(0), QStringLiteral("42"));
+  QCOMPARE(fields.at(2), QStringLiteral("DCV"));
+  QCOMPARE(fields.at(3), QStringLiteral("4.998"));
+  QCOMPARE(fields.at(4), QStringLiteral("V"));
+  QCOMPARE(fields.at(5), QStringLiteral("DC"));
+  QCOMPARE(fields.at(6), QStringLiteral("3"));
+  QCOMPARE(fields.at(11), QStringLiteral("1")); // manual range: AUTO bit clear
+}
+
+void CliBlackBoxTest::csvExportRejectsTheRawDecoder() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const QString fixture = directory.filePath(QStringLiteral("f.json"));
+  writeText(fixture, fixtureWithFrames({}).toUtf8());
+  const QString output = directory.filePath(QStringLiteral("out.csv"));
+
+  const auto result = runCli({QStringLiteral("--replay"), fixture, QStringLiteral("--csv"), output,
+                              QStringLiteral("--decoder"), QStringLiteral("raw")},
+                             directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 1);
+  QVERIFY(result.standardError.contains(QStringLiteral("needs the meter decoder")));
+  QVERIFY(!QFile::exists(output));
+}
+
+void CliBlackBoxTest::csvExportRejectsScanMode() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const QString output = directory.filePath(QStringLiteral("out.csv"));
+
+  const auto result =
+      runCli({QStringLiteral("--scan"), QStringLiteral("--csv"), output}, directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 1);
+  QVERIFY(result.standardError.contains(QStringLiteral("--csv cannot be combined with --scan")));
+  QVERIFY(!QFile::exists(output));
+}
+
+void CliBlackBoxTest::csvExportRefusesAnUnwritableFile() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const QString fixture = directory.filePath(QStringLiteral("f.json"));
+  writeText(fixture, fixtureWithFrames({}).toUtf8());
+  const QString output = directory.filePath(QStringLiteral("missing-dir/out.csv"));
+
+  const auto result = runCli({QStringLiteral("--replay"), fixture, QStringLiteral("--csv"), output},
+                             directory.path());
+  QVERIFY(result.started);
+  QCOMPARE(result.exitCode, 2);
+  QVERIFY(result.standardError.contains(QStringLiteral("Cannot write CSV")));
+  QVERIFY(!QFile::exists(output));
 }
 
 void CliBlackBoxTest::unknownDecoderIsRejected() {

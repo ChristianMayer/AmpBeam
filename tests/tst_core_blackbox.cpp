@@ -3,10 +3,12 @@
 //
 // Black-box tests driven only by fixtures and the public decoder contract.
 #include "ampbeam/core/capture.hpp"
+#include "ampbeam/core/csv.hpp"
 #include "ampbeam/core/decoder.hpp"
 #include "ampbeam/core/hex.hpp"
 #include "ampbeam/core/measurement.hpp"
 #include "ampbeam/core/meter.hpp"
+#include "ampbeam/core/monitor.hpp"
 #include "ampbeam/core/profile.hpp"
 
 #include <QFile>
@@ -92,6 +94,8 @@ private slots:
   void meterMinMaxAcFixture();
   void meterFrequencyVoltageFixture();
   void meterRelativeFixture();
+  void monitorLineMatchesHardwareFixtures();
+  void csvRowsMatchHardwareFixtures();
   void profileContainsExpectedUuids();
   void captureParsesCliOutput();
   void captureParsesHexAndEpochPrefix();
@@ -849,6 +853,39 @@ void CoreTest::meterRelativeFixture() {
     QVERIFY(frame.detail.find("states=REL") != std::string::npos);
     QVERIFY(QString::fromStdString(ampbeam::format(measurement)).contains(QStringLiteral("[rel]")));
   }
+}
+
+void CoreTest::monitorLineMatchesHardwareFixtures() {
+  // The mirror line has to name the mode exactly as the captures did.
+  const auto dcv = loadDecodedFixture(QStringLiteral("meter-hardware-dcv.json"));
+  QVERIFY(!dcv.empty());
+  QCOMPARE(dcv.front().kind, ampbeam::DecodedFrame::Kind::Measurement);
+  QCOMPARE(text(ampbeam::monitorModeName(dcv.front().measurement)), QStringLiteral("DCV"));
+  QVERIFY(text(ampbeam::monitorLine(dcv.front().measurement)).startsWith("DCV "));
+
+  const auto ncv = loadDecodedFixture(QStringLiteral("meter-hardware-ncv-levels.json"));
+  QVERIFY(!ncv.empty());
+  QCOMPARE(text(ampbeam::monitorModeName(ncv.front().measurement)), QStringLiteral("NCV"));
+
+  const auto minMax = loadDecodedFixture(QStringLiteral("meter-hardware-minmax-millivolt.json"));
+  QVERIFY(!minMax.empty());
+  const QString line = QString::fromStdString(ampbeam::monitorLine(minMax.front().measurement));
+  QVERIFY(line.contains(QStringLiteral("[manual]")));
+  QVERIFY(line.contains(QStringLiteral("[minmax]")));
+  QVERIFY(line.contains(QStringLiteral("MAX")));
+}
+
+void CoreTest::csvRowsMatchHardwareFixtures() {
+  const auto dcv = loadDecodedFixture(QStringLiteral("meter-hardware-dcv.json"));
+  QVERIFY(!dcv.empty());
+  const auto dcvRow =
+      QString::fromStdString(ampbeam::csvRow(dcv.front().measurement, "2026-11-22T00:00:00.000Z"));
+  QVERIFY(dcvRow.contains(QStringLiteral(",DCV,0.5692,V,DC,4,0,0,0,1,0,0,")));
+
+  const auto minMax = loadDecodedFixture(QStringLiteral("meter-hardware-minmax-millivolt.json"));
+  QVERIFY(!minMax.empty());
+  const auto minMaxRow = QString::fromStdString(ampbeam::csvRow(minMax.front().measurement, "t"));
+  QVERIFY(minMaxRow.contains(QStringLiteral(",DCV,0.107,mV,DC,3,0,0,0,0,1,1,MAX,9.371,mV,3")));
 }
 
 void CoreTest::profileContainsExpectedUuids() {

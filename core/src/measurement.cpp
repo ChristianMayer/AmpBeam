@@ -143,6 +143,22 @@ std::string formatNumber(double value, int significantDigits) {
   return stream.str();
 }
 
+std::string formatFixedNumber(double value, int decimals) {
+  if (std::isnan(value)) {
+    return "nan";
+  }
+  if (std::isinf(value)) {
+    return value < 0.0 ? "-inf" : "inf";
+  }
+
+  const int places = decimals < 0 ? 0 : decimals;
+  std::ostringstream stream;
+  stream.imbue(std::locale::classic());
+  // Normalize negative zero so the mirror never shows "-0.000".
+  stream << std::fixed << std::setprecision(places) << (value == 0.0 ? 0.0 : value);
+  return stream.str();
+}
+
 std::string format(const Measurement& measurement) {
   std::string out =
       std::isnan(measurement.value) ? std::string{"---"} : formatNumber(measurement.value);
@@ -175,6 +191,9 @@ std::string format(const Measurement& measurement) {
   }
   if (measurement.flags.relative) {
     out += " [rel]";
+  }
+  if (measurement.flags.minMax) {
+    out += " [minmax]";
   }
 
   if (measurement.secondary.present) {

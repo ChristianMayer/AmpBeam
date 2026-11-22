@@ -58,7 +58,7 @@ only in the explicitly unverified compatibility note in `README.md`.
 | `core/include/ampbeam/core/` | Public headers (`.hpp`). |
 | `ble/` (`ampbeam_ble`) | Qt Bluetooth transport: `DeviceScanner`, `MultimeterClient`, permission helper. Headers use `.h`. |
 | `app/` (`ampbeam`) | Qt Quick application (`Main.qml`, module URI `AmpBeam`) and `AppController` (registered via `QML_ELEMENT`). Also the Android manifest overlay and the desktop entry. |
-| `cli/` (`ampbeam-cli`) | Headless scan / capture / import / replay tool. |
+| `cli/` (`ampbeam-cli`) | Headless mirror / CSV export / scan / capture / import / replay tool. Usage: `cli/README.md`. |
 | `tests/` | White-box (`tst_core_whitebox`), fixture black box (`tst_core_blackbox`), CLI black box (`tst_cli`), transport (`tst_ble`) and controller (`tst_app`) suites, plus the hardware bench and the coverage gate. |
 | `assets/branding/` | Logo source of truth + Android icon derivation script. |
 | `cmake/CompilerWarnings.cmake` | `ampbeam_set_warnings()` / `ampbeam_set_strict_warnings()`. |
@@ -114,13 +114,25 @@ Build trees live in `build/<preset>/`; presets export
 ## `ampbeam-cli`
 
 ```
+ampbeam-cli                                             # default: discover + mirror
+ampbeam-cli [--mirror] [--device <address|auto>] [--name X] [--duration s] [--plain] [--verbose]
+ampbeam-cli [--mirror] [--device <address|auto>] [--csv <file>] [--duration s]
 ampbeam-cli --scan [--scan-timeout ms]
 ampbeam-cli --device <address|auto> [--name X] [--duration s] [--send <hex>]... [--challenge]
 ampbeam-cli --device <address> [--key <code>]... [--key-delay ms] [--key-release]
 ampbeam-cli --import capture.log --output tests/fixtures/<name>.json --fixture-name <name>
-ampbeam-cli --replay tests/fixtures/<name>.json [--decoder raw|meter]
+ampbeam-cli --replay tests/fixtures/<name>.json [--decoder raw|meter] [--mirror] [--plain]
 ampbeam-cli --service-uuid <uuid> --notify-uuid <uuid> --command-uuid <uuid> --key-uuid <uuid>
 ```
+
+The default action mirrors the meter display on one self-overwriting line and
+reconnects automatically; it is the computer-multimeter mode. `--mirror` forces
+it, `--plain` prints one line per reading, `--verbose` appends the decoded
+fields, `--csv <file>` exports every decoded reading, and `--mirror` with
+`--replay` renders a fixture offline. Mirror mode always uses `MeterDecoder`;
+`--csv` selects it as well. Mirror scan attempts last 5 s unless
+`--scan-timeout` is set; `--name` ends the scan as soon as the named device
+appears.
 
 Capture lines are `<epochMs>\t<length>\t<hex>\t<detail>`. The importer also
 accepts `<epochMs> <hex>` and bare `<hex>` lines, `#` comments and blank lines.

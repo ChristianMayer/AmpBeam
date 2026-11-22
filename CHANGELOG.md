@@ -28,6 +28,23 @@ released yet; the first release will be tagged from the current state.
   meter service, falls back to the only discovered device when service UUIDs
   are unavailable, and accepts `--name` as a filter. It refuses to guess when
   several devices are possible.
+- `ampbeam-cli` default mirror mode: without an action it discovers the meter,
+  renders one self-overwriting line with the mode, value, unit and indicators
+  (`--plain` for one line per reading), and reconnects with backoff after a
+  failed attempt or a lost connection. `--mirror` forces the mode and works with
+  `--replay` for offline rendering.
+- `Measurement` now carries the verified `MeterGear`, and `Flags` carries the
+  verified MinMax view (`[minmax]`), so a display can name the mode even for NCV,
+  which has no decimal quantity.
+- The mirror reproduces the LCD resolution (`Measurement::displayDecimals`, so
+  `6 V` prints as `6.000 V`), marks a clear AUTO bit as `[manual]` on functions
+  with ranges, and `--verbose` appends the decoded `gear`/`dp`/`raw`/`states`.
+  Mirror scans use a 5 s window per attempt and a `--name` scan stops as soon as
+  the named meter appears.
+- `ampbeam-cli --csv <file>` exports every decoded reading (timestamp, mode,
+  value/unit, range state, indicators and secondary reading) as UTF-8 CSV, in
+  mirror, replay and tracing modes. Only decoded readings are written; raw or
+  oscilloscope frames are skipped. `cli/README.md` documents the columns.
 - MinMax view decoding: state bit 5 is named `MINMAX`, the second pair is
   documented as MAX, and hardware fixtures cover changing DC mV and AC mV
   readings. MIN and AVG are not present in the frame.

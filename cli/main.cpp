@@ -1,11 +1,14 @@
 // Copyright (C) 2026 Christian Mayer
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// ampbeam-cli: scan, capture, key/command injection, import and replay.
+// ampbeam-cli: mirror the meter display, scan, capture, key/command injection,
+// import and replay.
 #include "ampbeam/core/capture.hpp"
+#include "ampbeam/core/csv.hpp"
 #include "ampbeam/core/decoder.hpp"
 #include "ampbeam/core/hex.hpp"
 #include "ampbeam/core/meter.hpp"
+#include "ampbeam/core/monitor.hpp"
 #include "ampbeam/core/profile.hpp"
 #include "ampbeam/core/selection.hpp"
 
@@ -29,10 +32,15 @@
 #include <QVariantMap>
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
+
+#if defined(Q_OS_UNIX)
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -56,10 +64,44 @@ QTextStream& err() {
   return stream;
 }
 
-void emitFrame(qint64 receivedAtMs, const QByteArray& data, const ampbeam::FrameDecoder& decoder) {
+/// Writes every decoded reading to a CSV file. One instance per run: the header
+/// is written when the file opens and each row is flushed, so `tail -f` works.
+class CsvExporter {
+public:
+  [[nodiscard]] bool open(const QString& path) {
+    m_file.setFileName(path);
+    if (!m_file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+      return false;
+    }
+    m_stream.setDevice(&m_file);
+    m_stream.setEncoding(QStringConverter::Utf8);
+    m_stream << QString::fromStdString(ampbeam::csvHeader()) << '\n';
+    m_stream.flush();
+    return true;
+  }
+
+  void write(const ampbeam::Measurement& measurement, qint64 receivedAtMs) {
+    ampbeam::Measurement copy = measurement;
+    copy.receivedAtMs = static_cast<std::uint64_t>(qMax<qint64>(receivedAtMs, 0));
+    const QString iso =
+        QDateTime::fromMSecsSinceEpoch(receivedAtMs).toUTC().toString(Qt::ISODateWithMs);
+    m_stream << QString::fromStdString(ampbeam::csvRow(copy, iso.toStdString())) << '\n';
+    m_stream.flush();
+  }
+
+private:
+  QFile m_file;
+  QTextStream m_stream;
+};
+
+void emitFrame(qint64 receivedAtMs, const QByteArray& data, const ampbeam::FrameDecoder& decoder,
+               CsvExporter* csv) {
   const auto* begin = reinterpret_cast<const std::uint8_t*>(data.constData());
   const std::span<const std::uint8_t> bytes(begin, static_cast<std::size_t>(data.size()));
   const auto decoded = decoder.decode(bytes);
+  if (csv != nullptr && decoded.kind == ampbeam::DecodedFrame::Kind::Measurement) {
+    csv->write(decoded.measurement, receivedAtMs);
+  }
 
   out() << receivedAtMs << '\t' << data.size() << '\t'
         << QString::fromStdString(ampbeam::toHex(bytes, ' ')) << '\t'
@@ -67,7 +109,76 @@ void emitFrame(qint64 receivedAtMs, const QByteArray& data, const ampbeam::Frame
   out().flush();
 }
 
-int replay(const QString& path, const ampbeam::FrameDecoder& decoder) {
+bool stdoutIsTerminal() {
+#if defined(Q_OS_UNIX)
+  return ::isatty(STDOUT_FILENO) != 0;
+#else
+  return false;
+#endif
+}
+
+/// Prints one mirror line and flushes it. On a terminal the previous line is
+/// overwritten; in a pipe, a log or with `--plain` every reading gets its own
+/// line.
+class MirrorPrinter {
+public:
+  explicit MirrorPrinter(bool overwrite) : m_overwrite(overwrite) {}
+
+  void show(const std::string& line) {
+    if (m_overwrite) {
+      out() << '\r' << QString::fromStdString(line) << QStringLiteral("\x1b[K");
+    } else {
+      out() << QString::fromStdString(line) << '\n';
+    }
+    out().flush();
+  }
+
+  /// Leaves the cursor on a fresh line after the last overwritten sample.
+  void finish() {
+    if (!m_overwrite) {
+      return;
+    }
+    out() << '\n';
+    out().flush();
+    m_overwrite = false;
+  }
+
+private:
+  bool m_overwrite;
+};
+
+/// Renders one decoded frame. A frame the decoder could not interpret is shown
+/// as its diagnostic (with the hex dump), never as a made-up reading.
+/// `verbose` appends the decoder's verified fields (gear, dp, raw, states).
+void emitMirrorFrame(std::span<const std::uint8_t> bytes, const ampbeam::FrameDecoder& decoder,
+                     MirrorPrinter& printer, bool verbose, CsvExporter* csv, qint64 receivedAtMs) {
+  const auto decoded = decoder.decode(bytes);
+  if (decoded.kind == ampbeam::DecodedFrame::Kind::Measurement) {
+    if (csv != nullptr) {
+      csv->write(decoded.measurement, receivedAtMs);
+    }
+    std::string line = ampbeam::monitorLine(decoded.measurement);
+    if (verbose) {
+      constexpr std::string_view prefix = "meter: ";
+      const std::string_view detail = decoded.detail;
+      line += "  |  ";
+      line += detail.starts_with(prefix) ? detail.substr(prefix.size()) : detail;
+    }
+    printer.show(line);
+    return;
+  }
+  printer.show("?  " + decoded.detail);
+}
+
+[[nodiscard]] int clampTimerMs(qint64 milliseconds) {
+  if (milliseconds <= 0) {
+    return 0;
+  }
+  return static_cast<int>(qMin<qint64>(milliseconds, std::numeric_limits<int>::max()));
+}
+
+int replay(const QString& path, const ampbeam::FrameDecoder& decoder, MirrorPrinter* printer,
+           bool verbose, CsvExporter* csv) {
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     err() << "Cannot open fixture: " << path << '\n';
@@ -93,11 +204,306 @@ int replay(const QString& path, const ampbeam::FrameDecoder& decoder) {
       err() << "Skipping malformed frame at index " << index << '\n';
       continue;
     }
+    if (printer != nullptr) {
+      emitMirrorFrame(std::span<const std::uint8_t>(*bytes), decoder, *printer, verbose, csv,
+                      receivedAtMs);
+      continue;
+    }
     emitFrame(receivedAtMs,
               QByteArray(reinterpret_cast<const char*>(bytes->data()),
                          static_cast<qsizetype>(bytes->size())),
-              decoder);
+              decoder, csv);
   }
+  if (printer != nullptr) {
+    printer->finish();
+  }
+  return 0;
+}
+
+struct MeterScan {
+  ampbeam::DeviceSelectionStatus status = ampbeam::DeviceSelectionStatus::None;
+  QString address;
+  QString name;
+  bool matchedService = false;
+  bool matchedName = false;
+  std::size_t candidateCount = 0;
+  std::size_t discoveredCount = 0;
+  QString error;
+};
+
+/// Scans for `timeoutMs` (or until `deadlineMs`) and runs the shared
+/// `selectMeterDevice` decision. Does not print and never guesses between
+/// several candidates.
+MeterScan scanForMeter(const QString& serviceUuid, const QString& nameFilter, int timeoutMs,
+                       qint64 deadlineMs) {
+  MeterScan result;
+
+  int scanMs = qMax(1000, timeoutMs);
+  int deadlineTimerMs = 0;
+  if (deadlineMs > 0) {
+    const qint64 remaining = deadlineMs - QDateTime::currentMSecsSinceEpoch();
+    if (remaining <= 0) {
+      return result;
+    }
+    deadlineTimerMs = clampTimerMs(remaining);
+    scanMs = qMax(1000, clampTimerMs(qMin<qint64>(remaining, scanMs)));
+  }
+
+  ampbeam::ble::DeviceScanner scanner;
+  QEventLoop loop;
+  QObject::connect(&scanner, &ampbeam::ble::DeviceScanner::errorOccurred, &loop,
+                   [&result](const QString& message) { result.error = message; });
+  QObject::connect(&scanner, &ampbeam::ble::DeviceScanner::runningChanged, &loop,
+                   [&scanner, &loop]() {
+                     if (!scanner.isRunning()) {
+                       loop.quit();
+                     }
+                   });
+  // With an explicit name the user already chose the device, so there is no
+  // ambiguity to wait for: stop the scan as soon as it advertises. Without a
+  // name, a second meter could still appear, so the full window is used.
+  QObject::connect(
+      &scanner, &ampbeam::ble::DeviceScanner::deviceDiscovered, &loop,
+      [&scanner, &loop, nameFilter](const QString&, const QString& name, int, const QString&) {
+        if (!nameFilter.isEmpty() && name.compare(nameFilter, Qt::CaseInsensitive) == 0) {
+          scanner.stop();
+          loop.quit();
+        }
+      });
+  QTimer::singleShot(scanMs, &scanner, &ampbeam::ble::DeviceScanner::stop);
+  QTimer::singleShot(scanMs + 500, &loop, &QEventLoop::quit);
+  if (deadlineTimerMs > 0) {
+    QTimer::singleShot(deadlineTimerMs, &loop, &QEventLoop::quit);
+  }
+
+  scanner.start(scanMs);
+  loop.exec();
+
+  const QVariantList discovered = scanner.devices();
+  std::vector<std::string> addresses;
+  std::vector<std::string> names;
+  std::vector<std::string> services;
+  addresses.reserve(static_cast<std::size_t>(discovered.size()));
+  names.reserve(static_cast<std::size_t>(discovered.size()));
+  services.reserve(static_cast<std::size_t>(discovered.size()));
+  for (const QVariant& value : discovered) {
+    const QVariantMap device = value.toMap();
+    addresses.push_back(device.value(QStringLiteral("address")).toString().toStdString());
+    names.push_back(device.value(QStringLiteral("name")).toString().toStdString());
+    services.push_back(device.value(QStringLiteral("services")).toString().toStdString());
+  }
+
+  std::vector<ampbeam::DeviceCandidate> candidates;
+  candidates.reserve(addresses.size());
+  for (std::size_t index = 0; index < addresses.size(); ++index) {
+    candidates.push_back({addresses[index], names[index], services[index]});
+  }
+
+  const std::string service = serviceUuid.toStdString();
+  const std::string filter = nameFilter.toStdString();
+  const ampbeam::DeviceSelectionResult selection =
+      ampbeam::selectMeterDevice(candidates, service, filter);
+
+  result.status = selection.status;
+  result.matchedService = selection.matchedService;
+  result.matchedName = selection.matchedName;
+  result.candidateCount = selection.candidateCount;
+  result.discoveredCount = selection.discoveredCount;
+  if (selection.status == ampbeam::DeviceSelectionStatus::Selected) {
+    result.address = QString::fromStdString(std::string(selection.address));
+    result.name = QString::fromStdString(std::string(selection.name));
+  }
+  return result;
+}
+
+/// Sleeps for `delayMs`, but never past `deadlineMs` (0 = no deadline).
+/// Returns false when the deadline was reached.
+bool waitFor(int delayMs, qint64 deadlineMs) {
+  qint64 sleepMs = delayMs;
+  if (deadlineMs > 0) {
+    const qint64 remaining = deadlineMs - QDateTime::currentMSecsSinceEpoch();
+    if (remaining <= 0) {
+      return false;
+    }
+    sleepMs = qMin(sleepMs, remaining);
+  }
+  if (sleepMs > 0) {
+    QEventLoop loop;
+    QTimer::singleShot(clampTimerMs(sleepMs), &loop, &QEventLoop::quit);
+    loop.exec();
+  }
+  return deadlineMs <= 0 || QDateTime::currentMSecsSinceEpoch() < deadlineMs;
+}
+
+struct GattSelection {
+  QString service;
+  QString data;
+  QString command;
+  QString key;
+  QString info;
+  bool overridden = false;
+};
+
+void applyGattProfile(ampbeam::ble::MultimeterClient& client, const GattSelection& gatt) {
+  if (!gatt.overridden) {
+    return;
+  }
+  client.setGattProfile(gatt.service, gatt.data, gatt.command, gatt.key, gatt.info);
+}
+
+struct MirrorSettings {
+  QString address;
+  QString name;
+  QString serviceUuid;
+  int scanTimeoutMs = 12000;
+  int durationSeconds = 0;
+  bool overwrite = false;
+  bool verbose = false;
+  GattSelection gatt;
+  CsvExporter* csv = nullptr;
+};
+
+/// Keeps one session alive as long as the user wants it: discovers, connects,
+/// mirrors every frame, and reconnects after a lost link or a failed attempt.
+/// The meter can legitimately stay quiet for a while (HOLD, continuity, steady
+/// readings), so an idle stream is not treated as an error. Only the deadline
+/// (or Ctrl+C) ends it.
+int runMirror(const MirrorSettings& settings) {
+  constexpr int kConnectTimeoutMs = 30000;
+
+  const qint64 deadlineMs = settings.durationSeconds > 0
+                                ? QDateTime::currentMSecsSinceEpoch() +
+                                      static_cast<qint64>(settings.durationSeconds) * 1000
+                                : 0;
+  const auto expired = [deadlineMs]() {
+    return deadlineMs > 0 && QDateTime::currentMSecsSinceEpoch() >= deadlineMs;
+  };
+
+  MirrorPrinter printer(settings.overwrite);
+  const ampbeam::MeterDecoder decoder;
+  ampbeam::ReconnectPolicy policy;
+  bool announcedSearch = false;
+
+  while (!expired()) {
+    QString address = settings.address;
+    QString name = settings.name;
+
+    if (address.isEmpty()) {
+      if (!announcedSearch) {
+        err() << "mirror: looking for a meter advertising " << settings.serviceUuid << "...\n";
+        err().flush();
+        announcedSearch = true;
+      }
+      const MeterScan scan =
+          scanForMeter(settings.serviceUuid, settings.name, settings.scanTimeoutMs, deadlineMs);
+      if (scan.status != ampbeam::DeviceSelectionStatus::Selected) {
+        const int delay = policy.nextDelayMs();
+        err() << "mirror: no usable meter";
+        if (!scan.error.isEmpty()) {
+          err() << " (" << scan.error << ')';
+        }
+        if (scan.status == ampbeam::DeviceSelectionStatus::Multiple) {
+          if (scan.matchedName) {
+            err() << "; " << scan.candidateCount << " devices are named " << settings.name;
+          } else if (scan.matchedService) {
+            err() << "; " << scan.candidateCount << " devices advertise the meter service";
+          } else {
+            err() << "; found " << scan.discoveredCount
+                  << " BLE devices and none advertised the meter service";
+          }
+          err() << ", narrow it down with --name or --device";
+        } else if (!settings.name.isEmpty()) {
+          err() << "; no device named " << settings.name << " found";
+        } else {
+          err() << "; no BLE device found";
+        }
+        err() << "; retrying in " << (delay / 1000) << " s\n";
+        err().flush();
+        if (!waitFor(delay, deadlineMs)) {
+          break;
+        }
+        continue;
+      }
+      address = scan.address;
+      name = scan.name;
+      announcedSearch = false;
+      err() << "mirror: using " << (name.isEmpty() ? address : name) << " (" << address << ")\n";
+      err().flush();
+    }
+
+    ampbeam::ble::MultimeterClient client;
+    applyGattProfile(client, settings.gatt);
+
+    ampbeam::MeterFramer framer;
+    QEventLoop loop;
+    QTimer attemptTimer;
+    bool streamed = false;
+    QString failure;
+
+    QObject::connect(&client, &ampbeam::ble::MultimeterClient::stateChanged, &loop,
+                     [&](ampbeam::ble::MultimeterClient::State state) {
+                       if (state == ampbeam::ble::MultimeterClient::State::Streaming) {
+                         streamed = true;
+                         policy.reset();
+                         attemptTimer.stop();
+                         err() << "mirror: streaming; press Ctrl+C to stop\n";
+                         err().flush();
+                       } else if (state == ampbeam::ble::MultimeterClient::State::Failed) {
+                         loop.quit();
+                       } else if (state == ampbeam::ble::MultimeterClient::State::Disconnected &&
+                                  streamed) {
+                         loop.quit();
+                       }
+                     });
+    QObject::connect(
+        &client, &ampbeam::ble::MultimeterClient::notification, &loop, [&](const QByteArray& data) {
+          const auto* begin = reinterpret_cast<const std::uint8_t*>(data.constData());
+          const std::span<const std::uint8_t> bytes(begin, static_cast<std::size_t>(data.size()));
+          const qint64 receivedAtMs = QDateTime::currentMSecsSinceEpoch();
+          for (const auto& frame : framer.push(bytes)) {
+            emitMirrorFrame(frame, decoder, printer, settings.verbose, settings.csv, receivedAtMs);
+          }
+        });
+    QObject::connect(&client, &ampbeam::ble::MultimeterClient::errorOccurred, &loop,
+                     [&failure](const QString& message) { failure = message; });
+
+    attemptTimer.setSingleShot(true);
+    QObject::connect(&attemptTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+    if (deadlineMs > 0) {
+      const qint64 remaining = deadlineMs - QDateTime::currentMSecsSinceEpoch();
+      if (remaining <= 0) {
+        break;
+      }
+      QTimer::singleShot(clampTimerMs(remaining), &loop, &QEventLoop::quit);
+    }
+
+    err() << "mirror: connecting to " << (name.isEmpty() ? address : name) << " (" << address
+          << ")...\n";
+    err().flush();
+    attemptTimer.start(kConnectTimeoutMs);
+    client.connectToDevice(address, name);
+    loop.exec();
+
+    client.disconnectFromDevice();
+
+    if (expired()) {
+      break;
+    }
+
+    const int delay = policy.nextDelayMs();
+    err() << "mirror: " << (streamed ? "lost the meter" : "could not connect");
+    if (!failure.isEmpty()) {
+      err() << ": " << failure;
+    }
+    err() << "; reconnecting in " << (delay / 1000) << " s\n";
+    err().flush();
+    if (!waitFor(delay, deadlineMs)) {
+      break;
+    }
+  }
+
+  printer.finish();
   return 0;
 }
 
@@ -111,16 +517,34 @@ int main(int argc, char* argv[]) {
   QCommandLineParser parser;
   parser.setApplicationDescription(
       QStringLiteral("BLE tracer for the supported multimeter protocol.\n"
-                     "Output format: <epochMs>TAB<length>TAB<hex>TAB<detail>"));
+                     "Default action: connect to the meter and mirror its display on one "
+                     "self-overwriting line.\n"
+                     "Capture format: <epochMs>TAB<length>TAB<hex>TAB<detail>"));
   parser.addHelpOption();
   parser.addVersionOption();
 
+  const QCommandLineOption mirrorOption(
+      QStringLiteral("mirror"),
+      QStringLiteral("Mirror the meter display (default when no other action is given). "
+                     "Reconnects automatically and never exits on its own."));
+  const QCommandLineOption plainOption(
+      QStringLiteral("plain"),
+      QStringLiteral("Mirror mode: print one line per reading instead of overwriting a single "
+                     "line. Automatic when stdout is not a terminal."));
+  const QCommandLineOption verboseOption(
+      QStringLiteral("verbose"),
+      QStringLiteral("Mirror mode: append the decoded frame fields (gear, dp, raw, states)."));
+  const QCommandLineOption csvOption(
+      QStringLiteral("csv"),
+      QStringLiteral("Write every decoded reading to this CSV file (selects the meter decoder)."),
+      QStringLiteral("file"));
   const QCommandLineOption scanOption({QStringLiteral("s"), QStringLiteral("scan")},
                                       QStringLiteral("Scan for BLE devices and exit."));
   const QCommandLineOption scanTimeoutOption(
       QStringLiteral("scan-timeout"),
-      QStringLiteral("Scan duration in milliseconds (default 12000)."), QStringLiteral("ms"),
-      QStringLiteral("12000"));
+      QStringLiteral("Scan duration in milliseconds (default 12000; mirror retries use 5000 "
+                     "unless this option is set)."),
+      QStringLiteral("ms"), QStringLiteral("12000"));
   const QCommandLineOption deviceOption(
       {QStringLiteral("d"), QStringLiteral("device")},
       QStringLiteral("Connect to this BLE address, or \"auto\" to use the only discovered "
@@ -189,13 +613,39 @@ int main(int argc, char* argv[]) {
       QStringLiteral("source"), QStringLiteral("Optional source note stored in the fixture."),
       QStringLiteral("text"));
 
-  parser.addOptions({scanOption,      scanTimeoutOption, deviceOption,  nameOption,
-                     serviceOption,   dataOption,        commandOption, keyUuidOption,
-                     infoOption,      sendOption,        keyOption,     keyReleaseOption,
-                     keyDelayOption,  durationOption,    replayOption,  decoderOption,
-                     challengeOption, importOption,      outputOption,  fixtureNameOption,
-                     sourceOption});
+  parser.addOptions(
+      {scanOption,    scanTimeoutOption, deviceOption,   nameOption,     serviceOption,
+       dataOption,    commandOption,     keyUuidOption,  infoOption,     sendOption,
+       keyOption,     keyReleaseOption,  keyDelayOption, durationOption, replayOption,
+       decoderOption, challengeOption,   importOption,   outputOption,   fixtureNameOption,
+       sourceOption,  mirrorOption,      plainOption,    verboseOption,  csvOption});
   parser.process(app);
+
+  const bool mirrorRequested = parser.isSet(mirrorOption);
+  if (mirrorRequested && parser.isSet(importOption)) {
+    err() << "--mirror cannot be combined with --import\n";
+    return 1;
+  }
+  if (mirrorRequested && parser.isSet(scanOption)) {
+    err() << "--mirror cannot be combined with --scan\n";
+    return 1;
+  }
+  if (mirrorRequested &&
+      (parser.isSet(sendOption) || parser.isSet(keyOption) || parser.isSet(challengeOption))) {
+    err() << "--mirror does not send commands; drop --send/--key/--challenge or use "
+             "--device <address> without --mirror\n";
+    return 1;
+  }
+
+  const bool csvRequested = parser.isSet(csvOption);
+  if (csvRequested && parser.isSet(importOption)) {
+    err() << "--csv cannot be combined with --import\n";
+    return 1;
+  }
+  if (csvRequested && parser.isSet(scanOption)) {
+    err() << "--csv cannot be combined with --scan\n";
+    return 1;
+  }
 
   if (parser.isSet(importOption)) {
     if (!parser.isSet(outputOption)) {
@@ -244,7 +694,17 @@ int main(int argc, char* argv[]) {
   }
 
   std::unique_ptr<ampbeam::FrameDecoder> decoder;
-  if (parser.value(decoderOption) == QStringLiteral("meter")) {
+  const bool replayRequested = parser.isSet(replayOption);
+  const bool mirrorMode = mirrorRequested || (!replayRequested && !parser.isSet(scanOption) &&
+                                              !parser.isSet(deviceOption));
+  if ((mirrorMode || csvRequested) && parser.isSet(decoderOption) &&
+      parser.value(decoderOption) != QStringLiteral("meter")) {
+    err() << (mirrorMode ? "mirror mode" : "CSV export") << " needs the meter decoder\n";
+    return 1;
+  }
+  const bool meterDecoding =
+      mirrorMode || csvRequested || parser.value(decoderOption) == QStringLiteral("meter");
+  if (meterDecoding) {
     decoder = std::make_unique<ampbeam::MeterDecoder>();
   } else if (parser.value(decoderOption) == QStringLiteral("raw")) {
     decoder = std::make_unique<ampbeam::RawDecoder>();
@@ -253,14 +713,28 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  if (parser.isSet(replayOption)) {
-    return replay(parser.value(replayOption), *decoder);
+  const bool overwrite = !parser.isSet(plainOption) && stdoutIsTerminal();
+
+  CsvExporter csvExporter;
+  CsvExporter* csv = nullptr;
+  if (csvRequested) {
+    if (!csvExporter.open(parser.value(csvOption))) {
+      err() << "Cannot write CSV: " << parser.value(csvOption) << '\n';
+      return 2;
+    }
+    csv = &csvExporter;
+  }
+
+  if (replayRequested) {
+    if (mirrorMode) {
+      MirrorPrinter printer(overwrite);
+      return replay(parser.value(replayOption), *decoder, &printer, parser.isSet(verboseOption),
+                    csv);
+    }
+    return replay(parser.value(replayOption), *decoder, nullptr, false, csv);
   }
 
   const int durationSeconds = parser.value(durationOption).toInt();
-  if (durationSeconds > 0) {
-    QTimer::singleShot(durationSeconds * 1000, &app, [&app]() { app.quit(); });
-  }
 
   if (parser.isSet(scanOption)) {
     const int timeoutMs = parser.value(scanTimeoutOption).toInt();
@@ -286,7 +760,7 @@ int main(int argc, char* argv[]) {
     return app.exec();
   }
 
-  if (!parser.isSet(deviceOption)) {
+  if (!parser.isSet(deviceOption) && !mirrorMode) {
     parser.showHelp(1);
   }
 
@@ -299,70 +773,60 @@ int main(int argc, char* argv[]) {
   QString deviceAddress = parser.value(deviceOption);
   QString deviceName = parser.value(nameOption);
 
+  const auto profileValue = [&parser](const QCommandLineOption& option, std::string_view uuid) {
+    return parser.isSet(option) ? parser.value(option)
+                                : QString::fromLatin1(uuid.data(), static_cast<int>(uuid.size()));
+  };
+  const GattSelection gatt{.service = profileValue(serviceOption, fallback.serviceUuid),
+                           .data = profileValue(dataOption, fallback.dataCharacteristicUuid),
+                           .command =
+                               profileValue(commandOption, fallback.commandCharacteristicUuid),
+                           .key = profileValue(keyUuidOption, fallback.keyCharacteristicUuid),
+                           .info = profileValue(infoOption, fallback.infoCharacteristicUuid),
+                           .overridden = parser.isSet(serviceOption) || parser.isSet(dataOption) ||
+                                         parser.isSet(commandOption) ||
+                                         parser.isSet(keyUuidOption) || parser.isSet(infoOption)};
+
+  if (mirrorMode) {
+    MirrorSettings settings;
+    settings.address = deviceAddress == QStringLiteral("auto") ? QString{} : deviceAddress;
+    settings.name = deviceName;
+    settings.serviceUuid = serviceUuid;
+    settings.scanTimeoutMs = parser.isSet(scanTimeoutOption)
+                                 ? qMax(1000, parser.value(scanTimeoutOption).toInt())
+                                 : 5000;
+    settings.durationSeconds = qMax(0, durationSeconds);
+    settings.overwrite = overwrite;
+    settings.verbose = parser.isSet(verboseOption);
+    settings.gatt = gatt;
+    settings.csv = csv;
+    return runMirror(settings);
+  }
+
   if (deviceAddress == QStringLiteral("auto")) {
     const int timeoutMs = qMax(1000, parser.value(scanTimeoutOption).toInt());
-    ampbeam::ble::DeviceScanner scanner;
-    QEventLoop loop;
-    QString scanError;
-    QObject::connect(&scanner, &ampbeam::ble::DeviceScanner::errorOccurred, &loop,
-                     [&scanError](const QString& message) { scanError = message; });
-    QObject::connect(&scanner, &ampbeam::ble::DeviceScanner::runningChanged, &loop,
-                     [&scanner, &loop]() {
-                       if (!scanner.isRunning()) {
-                         loop.quit();
-                       }
-                     });
-    QTimer::singleShot(timeoutMs, &scanner, &ampbeam::ble::DeviceScanner::stop);
-    QTimer::singleShot(timeoutMs + 500, &loop, &QEventLoop::quit);
-
     err() << "Scanning for " << timeoutMs << " ms to select the meter...\n";
-    scanner.start(timeoutMs);
-    loop.exec();
-
-    const QVariantList discovered = scanner.devices();
-    std::vector<std::string> addresses;
-    std::vector<std::string> names;
-    std::vector<std::string> services;
-    addresses.reserve(static_cast<std::size_t>(discovered.size()));
-    names.reserve(static_cast<std::size_t>(discovered.size()));
-    services.reserve(static_cast<std::size_t>(discovered.size()));
-    for (const QVariant& value : discovered) {
-      const QVariantMap device = value.toMap();
-      addresses.push_back(device.value(QStringLiteral("address")).toString().toStdString());
-      names.push_back(device.value(QStringLiteral("name")).toString().toStdString());
-      services.push_back(device.value(QStringLiteral("services")).toString().toStdString());
-    }
-
-    std::vector<ampbeam::DeviceCandidate> candidates;
-    candidates.reserve(addresses.size());
-    for (std::size_t index = 0; index < addresses.size(); ++index) {
-      candidates.push_back({addresses[index], names[index], services[index]});
-    }
-
-    const std::string service = serviceUuid.toStdString();
-    const std::string nameFilter = deviceName.toStdString();
-    const ampbeam::DeviceSelectionResult selection =
-        ampbeam::selectMeterDevice(candidates, service, nameFilter);
-    if (selection.status == ampbeam::DeviceSelectionStatus::Selected) {
-      deviceAddress = QString::fromStdString(std::string(selection.address));
-      deviceName = QString::fromStdString(std::string(selection.name));
+    const MeterScan scan = scanForMeter(serviceUuid, deviceName, timeoutMs, 0);
+    if (scan.status == ampbeam::DeviceSelectionStatus::Selected) {
+      deviceAddress = scan.address;
+      deviceName = scan.name;
       err() << "Selected " << (deviceName.isEmpty() ? deviceAddress : deviceName) << " ("
             << deviceAddress << ")";
-      if (!selection.matchedService) {
-        err() << (selection.matchedName ? " — matched --name" : " — only discovered device")
+      if (!scan.matchedService) {
+        err() << (scan.matchedName ? " — matched --name" : " — only discovered device")
               << "; its advertisement did not list " << serviceUuid;
       }
       err() << '\n';
-    } else if (selection.status == ampbeam::DeviceSelectionStatus::Multiple) {
-      if (selection.matchedName) {
-        err() << "Found " << selection.candidateCount << " devices named "
+    } else if (scan.status == ampbeam::DeviceSelectionStatus::Multiple) {
+      if (scan.matchedName) {
+        err() << "Found " << scan.candidateCount << " devices named "
               << (deviceName.isEmpty() ? QStringLiteral("<empty>") : deviceName)
               << "; pass --device <address> (use --scan to list them)\n";
-      } else if (selection.matchedService) {
-        err() << "Found " << selection.candidateCount << " devices advertising " << serviceUuid
+      } else if (scan.matchedService) {
+        err() << "Found " << scan.candidateCount << " devices advertising " << serviceUuid
               << "; pass --device <address> (use --scan to list them)\n";
       } else {
-        err() << "Found " << selection.discoveredCount << " BLE devices but none advertised "
+        err() << "Found " << scan.discoveredCount << " BLE devices but none advertised "
               << serviceUuid << "; pass --device <address> (use --scan to list them)\n";
       }
       return 1;
@@ -372,8 +836,8 @@ int main(int argc, char* argv[]) {
       } else {
         err() << "No BLE device found";
       }
-      if (!scanError.isEmpty()) {
-        err() << ": " << scanError;
+      if (!scan.error.isEmpty()) {
+        err() << ": " << scan.error;
       }
       err() << '\n';
       return 1;
@@ -381,20 +845,9 @@ int main(int argc, char* argv[]) {
   }
 
   ampbeam::ble::MultimeterClient client;
-  if (parser.isSet(serviceOption) || parser.isSet(dataOption) || parser.isSet(commandOption) ||
-      parser.isSet(keyUuidOption) || parser.isSet(infoOption)) {
-    const auto pick = [&parser](const QCommandLineOption& option, std::string_view uuid) {
-      return parser.isSet(option) ? parser.value(option)
-                                  : QString::fromLatin1(uuid.data(), static_cast<int>(uuid.size()));
-    };
-    client.setGattProfile(pick(serviceOption, fallback.serviceUuid),
-                          pick(dataOption, fallback.dataCharacteristicUuid),
-                          pick(commandOption, fallback.commandCharacteristicUuid),
-                          pick(keyUuidOption, fallback.keyCharacteristicUuid),
-                          pick(infoOption, fallback.infoCharacteristicUuid));
-  }
+  applyGattProfile(client, gatt);
 
-  const bool useMeterFraming = parser.value(decoderOption) == QStringLiteral("meter");
+  const bool useMeterFraming = meterDecoding;
   auto framer = std::make_shared<ampbeam::MeterFramer>();
 
   QObject::connect(&client, &ampbeam::ble::MultimeterClient::stateChanged,
@@ -478,14 +931,14 @@ int main(int argc, char* argv[]) {
                      }
                    });
   QObject::connect(&client, &ampbeam::ble::MultimeterClient::notification,
-                   [&decoder, framer, useMeterFraming](const QByteArray& data) {
+                   [&decoder, framer, useMeterFraming, csv](const QByteArray& data) {
                      const auto* begin = reinterpret_cast<const std::uint8_t*>(data.constData());
                      const std::span<const std::uint8_t> bytes(
                          begin, static_cast<std::size_t>(data.size()));
                      const qint64 receivedAtMs = QDateTime::currentMSecsSinceEpoch();
 
                      if (!useMeterFraming) {
-                       emitFrame(receivedAtMs, data, *decoder);
+                       emitFrame(receivedAtMs, data, *decoder, csv);
                        return;
                      }
                      const auto frames = framer->push(bytes);
@@ -497,7 +950,7 @@ int main(int argc, char* argv[]) {
                        emitFrame(receivedAtMs,
                                  QByteArray(reinterpret_cast<const char*>(frame.data()),
                                             static_cast<qsizetype>(frame.size())),
-                                 *decoder);
+                                 *decoder, csv);
                      }
                    });
   QObject::connect(
@@ -532,6 +985,10 @@ int main(int argc, char* argv[]) {
                            << QString::fromLatin1(payload).trimmed() << "\"\n";
                      err().flush();
                    });
+
+  if (durationSeconds > 0) {
+    QTimer::singleShot(durationSeconds * 1000, &app, [&app]() { app.quit(); });
+  }
 
   err() << "Connecting to " << deviceAddress << "...\n";
   client.connectToDevice(deviceAddress, deviceName);
