@@ -107,6 +107,9 @@ set_target_properties(ampbeam PROPERTIES
   QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
   QT_ANDROID_MIN_SDK_VERSION 24
   QT_ANDROID_TARGET_SDK_VERSION 34
+  # androiddeployqt defaults to the newest build-tools on the machine. Pin the
+  # revision that matches android-34 so aapt2 and the platform jar agree.
+  QT_ANDROID_SDK_BUILD_TOOLS_REVISION "34.0.0"
   QT_ANDROID_VERSION_CODE "${AMPBEAM_ANDROID_VERSION_CODE}"
   QT_ANDROID_VERSION_NAME "${PROJECT_VERSION}"
 )
@@ -125,6 +128,6 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/ampbeam.desktop"
 # AppStream metadata so software centres can describe the installed
 # application. The AppImage script also installs a legacy *.appdata.xml copy,
 # which older AppImage tooling looks for.
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/ampbeam.metainfo.xml"
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/org.ampbeam.AmpBeam.metainfo.xml"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo"
 )

@@ -215,7 +215,7 @@ Both workflows run a smoke test before uploading:
 ### Release checklist
 
 1. Update `project(AmpBeam VERSION ...)` in `CMakeLists.txt`, `CHANGELOG.md` and
-   the `<releases>` entry in `app/ampbeam.metainfo.xml`.
+   the `<releases>` entry in `app/org.ampbeam.AmpBeam.metainfo.xml`.
 2. Tag the commit: `git tag v0.1.0 && git push origin v0.1.0`.
 3. Wait for the **Release** workflow. It builds, tests and packages both
    artifacts, then attaches them to the GitHub release.

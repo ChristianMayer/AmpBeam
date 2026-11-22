@@ -65,7 +65,26 @@ jobs:
         run: ctest --preset linux-release
 
       - name: Package AppImage
-        run: packaging/appimage/build-appimage.sh --version "${{ inputs.version }}"
+        run: |
+          set -o pipefail
+          if ! packaging/appimage/build-appimage.sh --version "${{ inputs.version }}" \
+              2>&1 | tee /tmp/package-appimage.log; then
+            summary=$(grep -m1 '^error:' /tmp/package-appimage.log || true)
+            if [ -z "$summary" ]; then
+              summary=$(tail -n 1 /tmp/package-appimage.log)
+            fi
+            echo "::error title=AppImage packaging failed::$summary"
+            exit 1
+          fi
+
+      - name: Upload AppImage packaging log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ampbeam-appimage-log-${{ inputs.suffix }}
+          path: /tmp/package-appimage.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Verify the AppImage
         run: |
@@ -170,6 +189,18 @@ jobs:
             "build-tools;34.0.0" \
             "ndk;26.1.10909125"
 
+          # androiddeployqt defaults to the highest installed platform. The
+          # ubuntu-24.04 image also ships preview/extension platforms such as
+          # android-36-ext19, whose android.jar aapt2 cannot read. Keep only
+          # android-34, the platform the preset builds against.
+          for platform in "$sdk_root"/platforms/android-*; do
+            [ -d "$platform" ] || continue
+            name=$(basename "$platform")
+            if [ "$name" != "android-34" ]; then
+              sudo mv "$platform" "$sdk_root/platforms/disabled-$name"
+            fi
+          done
+
           ndk_root="$sdk_root/ndk/26.1.10909125"
           if [ ! -d "$ndk_root" ]; then
             ndk_root=$(find "$sdk_root/ndk" -mindepth 1 -maxdepth 1 -type d \
@@ -192,7 +223,26 @@ jobs:
           AMPBEAM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           AMPBEAM_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           AMPBEAM_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: packaging/android/build-apk.sh --version "${{ inputs.version }}"
+        run: |
+          set -o pipefail
+          if ! packaging/android/build-apk.sh --version "${{ inputs.version }}" \
+              2>&1 | tee /tmp/package-apk.log; then
+            summary=$(grep -m1 -E '^error:|^FAILED:|aapt2 E|error:' /tmp/package-apk.log || true)
+            if [ -z "$summary" ]; then
+              summary=$(tail -n 1 /tmp/package-apk.log)
+            fi
+            echo "::error title=APK packaging failed::$summary"
+            exit 1
+          fi
+
+      - name: Upload APK packaging log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ampbeam-apk-log-${{ inputs.suffix }}
+          path: /tmp/package-apk.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Verify the APK
         run: |

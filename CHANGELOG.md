@@ -116,7 +116,7 @@ in the CLI and the GUI.
   reproduce the CI artifacts locally; `android-release` builds the signed APK,
   and `docs/distribution.md` documents installation, signing and the release
   process.
-- AppStream metadata (`app/ampbeam.metainfo.xml`) and the legacy
+- AppStream metadata (`app/org.ampbeam.AmpBeam.metainfo.xml`) and the legacy
   `ampbeam.appdata.xml` name for software centres and AppImage tooling.
 
 ### Fixed

@@ -7,11 +7,14 @@
   software centres use it to describe the installed binary.
 -->
 <component type="desktop-application">
-  <id>ampbeam</id>
+  <id>org.ampbeam.AmpBeam</id>
   <name>AmpBeam</name>
   <summary>Read Bluetooth Low Energy multimeters</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
+  <developer id="org.ampbeam">
+    <name>AmpBeam</name>
+  </developer>
   <description>
     <p>
       AmpBeam mirrors and plots the readings of Bluetooth Low Energy
