@@ -42,6 +42,12 @@ What stays in a front-end is only the driver of that state machine and its I/O:
 `ampbeam-cli` uses a blocking `QEventLoop` for its mirror/trace actions, while
 the GUI is signal-driven and owns its files and widgets. File writing for CSV
 and capture recording is therefore repeated, but the row/line formatting is not.
+The GUI's signal trace is `ampbeam::TraceHistory`: the controller pushes every
+proven reading into the bounded, time-stamped window and QML only draws the
+normalized samples, so the fixed timebase, scrolling, gaps, series changes, the
+independently scaled secondary channel and both zoom axes stay testable in
+`core`. Pausing freezes that window; it is a controller state, not a filter
+inside the decoder.
 The GUI's file choosers call `org.freedesktop.portal.FileChooser` over QtDBus
 when the desktop provides it, because several Qt distributions (for example
 Kubuntu's) do not ship the `xdgdesktopportal` platform theme. Protocol-exploration

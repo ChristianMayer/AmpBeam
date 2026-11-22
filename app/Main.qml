@@ -239,14 +239,104 @@ ApplicationWindow {
 
       background: Rectangle { color: "transparent" }
 
-      TabButton { text: qsTr("Live log") }
+      TabButton {
+        text: qsTr("Trace")
+        hoverEnabled: true
+        ToolTip.visible: hovered
+        ToolTip.text: qsTr("Curve of the last readings")
+      }
       TabButton { text: qsTr("Device") }
+      TabButton {
+        text: qsTr("Raw")
+        hoverEnabled: true
+        ToolTip.visible: hovered
+        ToolTip.text: qsTr("Extended information: every received frame as hex")
+      }
     }
 
     StackLayout {
       Layout.fillWidth: true
       Layout.fillHeight: true
       currentIndex: tabs.currentIndex
+
+      TraceView {
+        controller: controller
+      }
+
+      ColumnLayout {
+        spacing: 14
+
+        GridLayout {
+          columns: 2
+          columnSpacing: 28
+          rowSpacing: 10
+
+          Label {
+            text: qsTr("Series")
+            color: "#5e6a7c"
+            font.pixelSize: 11
+            font.bold: true
+          }
+          Label {
+            text: controller.deviceSeriesText
+            color: "#e7edf5"
+            font.family: "monospace"
+          }
+
+          Label {
+            text: qsTr("Firmware")
+            color: "#5e6a7c"
+            font.pixelSize: 11
+            font.bold: true
+          }
+          Label {
+            text: controller.deviceVersionText
+            color: "#e7edf5"
+            font.family: "monospace"
+          }
+
+          Label {
+            text: qsTr("Device")
+            color: "#5e6a7c"
+            font.pixelSize: 11
+            font.bold: true
+          }
+          Label {
+            text: root.deviceLabel
+            color: "#e7edf5"
+            elide: Text.ElideRight
+            Layout.fillWidth: true
+          }
+
+          Label {
+            text: qsTr("Readings")
+            color: "#5e6a7c"
+            font.pixelSize: 11
+            font.bold: true
+          }
+          Label {
+            text: controller.readingCount
+            color: "#e7edf5"
+            font.family: "monospace"
+          }
+        }
+
+        Rectangle {
+          Layout.fillWidth: true
+          height: 1
+          color: "#1f2833"
+        }
+
+        Label {
+          Layout.fillWidth: true
+          wrapMode: Text.WordWrap
+          color: "#7e8a9c"
+          font.pixelSize: 12
+          text: qsTr("The meter selects its function locally. The verified remote keys are Select, Range and Hold; the GUI never guesses a command the protocol does not prove.")
+        }
+
+        Item { Layout.fillHeight: true }
+      }
 
       ColumnLayout {
         spacing: 8
@@ -331,89 +421,14 @@ ApplicationWindow {
           font.pixelSize: 10
           elide: Text.ElideRight
         }
-      }
-
-      ColumnLayout {
-        spacing: 14
-
-        GridLayout {
-          columns: 2
-          columnSpacing: 28
-          rowSpacing: 10
-
-          Label {
-            text: qsTr("Series")
-            color: "#5e6a7c"
-            font.pixelSize: 11
-            font.bold: true
-          }
-          Label {
-            text: controller.deviceSeriesText
-            color: "#e7edf5"
-            font.family: "monospace"
-          }
-
-          Label {
-            text: qsTr("Firmware")
-            color: "#5e6a7c"
-            font.pixelSize: 11
-            font.bold: true
-          }
-          Label {
-            text: controller.deviceVersionText
-            color: "#e7edf5"
-            font.family: "monospace"
-          }
-
-          Label {
-            text: qsTr("Device")
-            color: "#5e6a7c"
-            font.pixelSize: 11
-            font.bold: true
-          }
-          Label {
-            text: root.deviceLabel
-            color: "#e7edf5"
-            elide: Text.ElideRight
-            Layout.fillWidth: true
-          }
-
-          Label {
-            text: qsTr("Readings")
-            color: "#5e6a7c"
-            font.pixelSize: 11
-            font.bold: true
-          }
-          Label {
-            text: controller.readingCount
-            color: "#e7edf5"
-            font.family: "monospace"
-          }
-        }
-
-        Rectangle {
-          Layout.fillWidth: true
-          height: 1
-          color: "#1f2833"
-        }
-
-        Label {
-          Layout.fillWidth: true
-          wrapMode: Text.WordWrap
-          color: "#7e8a9c"
-          font.pixelSize: 12
-          text: qsTr("The meter selects its function locally. The verified remote keys are Select, Range and Hold; the GUI never guesses a command the protocol does not prove.")
-        }
 
         Label {
           Layout.fillWidth: true
           wrapMode: Text.WordWrap
           color: "#5e6a7c"
           font.pixelSize: 11
-          text: qsTr("Live log rows use the capture format: epoch milliseconds, frame length, hex bytes and the decoded fields. Record a capture to replay or import it later.")
+          text: qsTr("Raw rows use the capture format: epoch milliseconds, frame length, hex bytes and the decoded fields. Record a capture to replay or import it later.")
         }
-
-        Item { Layout.fillHeight: true }
       }
     }
 

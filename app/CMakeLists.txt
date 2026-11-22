@@ -18,6 +18,7 @@ qt_add_qml_module(ampbeam
     AppButton.qml
     IndicatorChip.qml
     MeterDisplay.qml
+    TraceView.qml
     DeviceDialog.qml
 )
 

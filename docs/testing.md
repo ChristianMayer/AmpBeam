@@ -94,7 +94,9 @@ discovery/notification state machine is exercised against a real meter.
 
 Drives `AppController::handleNotification` through the meta-object and checks
 raw hex, the bounded log, framing of split notifications, value formatting and
-"no measurement" frames. It also covers the rejected-connection path.
+"no measurement" frames. It also covers the trace window exposed to QML
+(timebase and value zoom, secondary channel, gaps for overloads, a new series
+on mode changes, pause and clear) and the rejected-connection path.
 
 ### Hardware — `tests/bench/mode_sweep.py`
 

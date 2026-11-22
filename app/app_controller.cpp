@@ -148,6 +148,109 @@ QString AppController::lastUpdateText() const {
   return m_lastUpdateText;
 }
 
+QVariantList AppController::traceSamples() const {
+  const auto points = m_trace.samples();
+  QVariantList samples;
+  samples.reserve(static_cast<qsizetype>(points.size()));
+  for (const auto& point : points) {
+    samples.append(QVariantMap{{QStringLiteral("x"), point.x},
+                               {QStringLiteral("y"), point.y},
+                               {QStringLiteral("valid"), point.valid},
+                               {QStringLiteral("secondaryY"), point.secondaryY},
+                               {QStringLiteral("secondaryValid"), point.secondaryValid}});
+  }
+  return samples;
+}
+
+int AppController::traceCount() const {
+  return static_cast<int>(m_trace.size());
+}
+
+int AppController::traceCapacity() const {
+  return static_cast<int>(m_trace.capacity());
+}
+
+int AppController::traceSpanMs() const {
+  return static_cast<int>(m_trace.timeSpanMs());
+}
+
+QString AppController::traceSpanText() const {
+  return tr("%1 s").arg(m_trace.timeSpanMs() / 1000U);
+}
+
+bool AppController::traceCanZoomTimeIn() const {
+  return m_trace.canZoomTimeIn();
+}
+
+bool AppController::traceCanZoomTimeOut() const {
+  return m_trace.canZoomTimeOut();
+}
+
+double AppController::traceValueZoom() const {
+  return m_trace.valueZoom();
+}
+
+QString AppController::traceValueZoomText() const {
+  return QStringLiteral("×%1").arg(static_cast<int>(m_trace.valueZoom()));
+}
+
+bool AppController::traceCanZoomValueIn() const {
+  return m_trace.canZoomValueIn();
+}
+
+bool AppController::traceCanZoomValueOut() const {
+  return m_trace.canZoomValueOut();
+}
+
+bool AppController::traceHasSecondary() const {
+  return m_trace.hasSecondary();
+}
+
+QString AppController::traceSecondaryUnitText() const {
+  const char* symbol = ampbeam::unitSymbol(m_trace.secondaryUnit());
+  return symbol != nullptr ? QString::fromUtf8(symbol) : QString();
+}
+
+QString AppController::traceSecondaryMinText() const {
+  return traceValueText(m_trace.secondaryVisibleMinimum(), m_traceSecondaryDecimals);
+}
+
+QString AppController::traceSecondaryMaxText() const {
+  return traceValueText(m_trace.secondaryVisibleMaximum(), m_traceSecondaryDecimals);
+}
+
+QString AppController::traceNewestText() const {
+  const std::uint64_t newest = m_trace.newestTimeMs();
+  if (newest == 0) {
+    return {};
+  }
+  return QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(newest))
+      .toString(QStringLiteral("HH:mm:ss"));
+}
+
+bool AppController::tracePaused() const {
+  return m_tracePaused;
+}
+
+void AppController::setTracePaused(bool paused) {
+  if (m_tracePaused == paused) {
+    return;
+  }
+  m_tracePaused = paused;
+  emit tracePausedChanged();
+  // Repaint so the view can show or hide its pause marker even when no new
+  // reading arrives.
+  emit traceChanged();
+}
+
+QString AppController::traceMinText() const {
+  return traceValueText(m_trace.visibleMinimum(), m_traceDecimals);
+}
+
+QString AppController::traceMaxText() const {
+  return traceValueText(m_trace.visibleMaximum(), m_traceDecimals);
+}
+
 QString AppController::logText() const {
   return m_log.join(QLatin1Char('\n'));
 }
@@ -286,6 +389,31 @@ bool AppController::sendKeyNow(int code) {
 void AppController::clearLog() {
   m_log.clear();
   emit logTextChanged();
+}
+
+void AppController::clearTrace() {
+  m_trace.clear();
+  emit traceChanged();
+}
+
+void AppController::zoomTraceTimeIn() {
+  m_trace.zoomTimeIn();
+  emit traceChanged();
+}
+
+void AppController::zoomTraceTimeOut() {
+  m_trace.zoomTimeOut();
+  emit traceChanged();
+}
+
+void AppController::zoomTraceValueIn() {
+  m_trace.zoomValueIn();
+  emit traceChanged();
+}
+
+void AppController::zoomTraceValueOut() {
+  m_trace.zoomValueOut();
+  emit traceChanged();
 }
 
 bool AppController::exportCsv(const QString& pathOrUrl) {
@@ -552,6 +680,16 @@ void AppController::applyMeasurement(const ampbeam::Measurement& measurement) {
   }
   setLastUpdateText(QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(stored.receivedAtMs))
                         .toString(QStringLiteral("HH:mm:ss")));
+
+  // The trace view draws the same proven readings as the meter face; an
+  // overload (NaN) becomes a gap instead of a made-up sample. Emitted after the
+  // text properties so the first repaint already knows the unit.
+  if (!m_tracePaused) {
+    m_trace.push(stored);
+    m_traceDecimals = stored.displayDecimals;
+    m_traceSecondaryDecimals = stored.secondary.displayDecimals;
+    emit traceChanged();
+  }
 }
 
 void AppController::writeCaptureLine(const QString& line) {
@@ -674,6 +812,16 @@ void AppController::appendLog(const QString& line) {
     m_log.removeFirst();
   }
   emit logTextChanged();
+}
+
+QString AppController::traceValueText(const std::optional<double>& value, int decimals) const {
+  if (!value.has_value()) {
+    return {};
+  }
+  if (decimals >= 0) {
+    return QString::fromStdString(ampbeam::formatFixedNumber(*value, decimals));
+  }
+  return QString::fromStdString(ampbeam::formatNumber(*value, 6));
 }
 
 QString AppController::localPath(const QString& pathOrUrl) {

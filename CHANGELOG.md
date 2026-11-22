@@ -25,8 +25,23 @@ released yet; the first release will be tagged from the current state.
 - `ampbeam`: Qt Quick desktop and Android application with automatic meter
   discovery and reconnect with backoff, an explicit device picker, a split
   meter face (mode, value, unit, verified indicators and secondary reading),
-  the verified Select/Range/Hold keys, device identity, a raw-frame live log,
-  session CSV export and capture recording.
+  the verified Select/Range/Hold keys, device identity, a signal trace of the
+  recent readings, an optional raw-frame log, session CSV export and capture
+  recording.
+- The GUI opens on a normal multimeter view, with the **Trace** tab plotting the
+  proven readings on a fixed, scrollable timebase (10 s by default, 2 s to
+  60 s). The newest reading is pinned to the right edge, older readings scroll
+  left, the timebase and the value range can be zoomed separately, and both the
+  primary and the secondary reading of a frame are drawn together. The tab also
+  has pause/continue and clear controls. The raw frame log is extended
+  information in its own **Raw** tab and is never the default view; the
+  **Device** tab shows the device identity.
+- `ampbeam_core`: `TraceHistory` is time-based: it keeps a bounded window of
+  proven readings with their receive times, drops readings outside the selected
+  timebase, scales the primary and secondary values independently, and reports
+  the zoomed value range so axis labels match the clipped curve. A gap marks an
+  overload (or an infinite value), and a different mode or unit starts a new
+  series, so no curve joins two unrelated functions.
 - `ampbeam_core`: `monitorValueText`, `monitorUnitText` and
   `monitorSecondaryText` expose the mirror's number, unit and secondary reading
   separately so the GUI renders the same verified text as the CLI.

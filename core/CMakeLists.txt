@@ -11,6 +11,7 @@ add_library(ampbeam_core STATIC
   src/meter.cpp
   src/monitor.cpp
   src/selection.cpp
+  src/trace.cpp
 )
 
 target_include_directories(ampbeam_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

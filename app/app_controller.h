@@ -11,6 +11,7 @@
 #include "ampbeam/core/measurement.hpp"
 #include "ampbeam/core/meter.hpp"
 #include "ampbeam/core/monitor.hpp"
+#include "ampbeam/core/trace.hpp"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -21,6 +22,8 @@
 #include <QVariantList>
 #include <QVector>
 #include <QtQml/qqml.h>
+
+#include <optional>
 
 class AppController : public QObject {
   Q_OBJECT
@@ -45,6 +48,25 @@ class AppController : public QObject {
   Q_PROPERTY(QString rawHex READ rawHex NOTIFY rawHexChanged)
   Q_PROPERTY(QString detailText READ detailText NOTIFY detailTextChanged)
   Q_PROPERTY(QString lastUpdateText READ lastUpdateText NOTIFY readingChanged)
+  Q_PROPERTY(QVariantList traceSamples READ traceSamples NOTIFY traceChanged)
+  Q_PROPERTY(int traceCount READ traceCount NOTIFY traceChanged)
+  Q_PROPERTY(int traceCapacity READ traceCapacity CONSTANT)
+  Q_PROPERTY(int traceSpanMs READ traceSpanMs NOTIFY traceChanged)
+  Q_PROPERTY(QString traceSpanText READ traceSpanText NOTIFY traceChanged)
+  Q_PROPERTY(bool traceCanZoomTimeIn READ traceCanZoomTimeIn NOTIFY traceChanged)
+  Q_PROPERTY(bool traceCanZoomTimeOut READ traceCanZoomTimeOut NOTIFY traceChanged)
+  Q_PROPERTY(double traceValueZoom READ traceValueZoom NOTIFY traceChanged)
+  Q_PROPERTY(QString traceValueZoomText READ traceValueZoomText NOTIFY traceChanged)
+  Q_PROPERTY(bool traceCanZoomValueIn READ traceCanZoomValueIn NOTIFY traceChanged)
+  Q_PROPERTY(bool traceCanZoomValueOut READ traceCanZoomValueOut NOTIFY traceChanged)
+  Q_PROPERTY(bool traceHasSecondary READ traceHasSecondary NOTIFY traceChanged)
+  Q_PROPERTY(QString traceSecondaryUnitText READ traceSecondaryUnitText NOTIFY traceChanged)
+  Q_PROPERTY(QString traceSecondaryMinText READ traceSecondaryMinText NOTIFY traceChanged)
+  Q_PROPERTY(QString traceSecondaryMaxText READ traceSecondaryMaxText NOTIFY traceChanged)
+  Q_PROPERTY(QString traceNewestText READ traceNewestText NOTIFY traceChanged)
+  Q_PROPERTY(bool tracePaused READ tracePaused WRITE setTracePaused NOTIFY tracePausedChanged)
+  Q_PROPERTY(QString traceMinText READ traceMinText NOTIFY traceChanged)
+  Q_PROPERTY(QString traceMaxText READ traceMaxText NOTIFY traceChanged)
   Q_PROPERTY(QString logText READ logText NOTIFY logTextChanged)
   Q_PROPERTY(QString deviceSeriesText READ deviceSeriesText NOTIFY deviceInfoChanged)
   Q_PROPERTY(QString deviceVersionText READ deviceVersionText NOTIFY deviceInfoChanged)
@@ -75,6 +97,26 @@ public:
   [[nodiscard]] QString rawHex() const;
   [[nodiscard]] QString detailText() const;
   [[nodiscard]] QString lastUpdateText() const;
+  [[nodiscard]] QVariantList traceSamples() const;
+  [[nodiscard]] int traceCount() const;
+  [[nodiscard]] int traceCapacity() const;
+  [[nodiscard]] int traceSpanMs() const;
+  [[nodiscard]] QString traceSpanText() const;
+  [[nodiscard]] bool traceCanZoomTimeIn() const;
+  [[nodiscard]] bool traceCanZoomTimeOut() const;
+  [[nodiscard]] double traceValueZoom() const;
+  [[nodiscard]] QString traceValueZoomText() const;
+  [[nodiscard]] bool traceCanZoomValueIn() const;
+  [[nodiscard]] bool traceCanZoomValueOut() const;
+  [[nodiscard]] bool traceHasSecondary() const;
+  [[nodiscard]] QString traceSecondaryUnitText() const;
+  [[nodiscard]] QString traceSecondaryMinText() const;
+  [[nodiscard]] QString traceSecondaryMaxText() const;
+  [[nodiscard]] QString traceNewestText() const;
+  [[nodiscard]] bool tracePaused() const;
+  void setTracePaused(bool paused);
+  [[nodiscard]] QString traceMinText() const;
+  [[nodiscard]] QString traceMaxText() const;
   [[nodiscard]] QString logText() const;
   [[nodiscard]] QString deviceSeriesText() const;
   [[nodiscard]] QString deviceVersionText() const;
@@ -101,6 +143,14 @@ public:
 
   Q_INVOKABLE void clearLog();
 
+  /// Signal trace controls: freeze/resume following new readings, empty the
+  /// window, or change the timebase and the value magnification.
+  Q_INVOKABLE void clearTrace();
+  Q_INVOKABLE void zoomTraceTimeIn();
+  Q_INVOKABLE void zoomTraceTimeOut();
+  Q_INVOKABLE void zoomTraceValueIn();
+  Q_INVOKABLE void zoomTraceValueOut();
+
   /// Writes every decoded reading collected this session as CSV. Accepts a
   /// local path or a `file:` URL.
   Q_INVOKABLE bool exportCsv(const QString& pathOrUrl);
@@ -123,6 +173,8 @@ signals:
   void valueTextChanged();
   void rawHexChanged();
   void detailTextChanged();
+  void traceChanged();
+  void tracePausedChanged();
   void logTextChanged();
   void deviceInfoChanged();
   void captureChanged();
@@ -157,6 +209,7 @@ private:
   void setDeviceSelectionRequired(bool required);
   void appendLog(const QString& line);
 
+  [[nodiscard]] QString traceValueText(const std::optional<double>& value, int decimals) const;
   [[nodiscard]] static QString localPath(const QString& pathOrUrl);
 
   ampbeam::ble::DeviceScanner m_scanner;
@@ -169,6 +222,7 @@ private:
   QFile m_captureFile;
 
   QVector<ampbeam::Measurement> m_readings;
+  ampbeam::TraceHistory m_trace{1200};
 
   QString m_status = QStringLiteral("Idle");
   QString m_deviceName;
@@ -184,6 +238,8 @@ private:
   QString m_seriesText = QStringLiteral("—");
   QString m_versionText = QStringLiteral("—");
   QVariantList m_indicators;
+  int m_traceDecimals = -1;
+  int m_traceSecondaryDecimals = -1;
 
   QStringList m_log;
   int m_maxLogLines = 500;
@@ -192,6 +248,7 @@ private:
   int m_capturedFrames = 0;
 
   bool m_hasReading = false;
+  bool m_tracePaused = false;
   bool m_autoMode = false;
   bool m_autoScan = false;
   bool m_autoConnecting = false;

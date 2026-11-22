@@ -19,6 +19,7 @@
 #include "ampbeam/core/meter.hpp"
 #include "ampbeam/core/monitor.hpp"
 #include "ampbeam/core/selection.hpp"
+#include "ampbeam/core/trace.hpp"
 
 #include <QTest>
 
@@ -100,6 +101,10 @@ bool nearlyEqual(double actual, double expected) {
   return std::abs(actual - expected) <= std::abs(expected) * 1e-9 + 1e-12;
 }
 
+/// Realistic receive time for trace tests; epoch milliseconds are far larger
+/// than every timebase, so the newest sample sits on the right edge.
+constexpr std::uint64_t kTraceBaseMs = 1700000000000ULL;
+
 } // namespace
 
 class CoreWhiteBoxTest final : public QObject {
@@ -113,6 +118,15 @@ private slots:
   void monitorModeNames();
   void monitorLineFormatting();
   void monitorDisplayParts();
+  void traceHistorySamplesAreScaled();
+  void traceHistoryFlatAndSingleSeries();
+  void traceHistoryStartsANewSeries();
+  void traceHistoryMarksGaps();
+  void traceHistoryClampsCapacity();
+  void traceHistoryTimeZoom();
+  void traceHistoryValueZoom();
+  void traceHistoryPlotsSecondaryReadings();
+  void traceHistoryDropsSamplesOutsideTheTimebase();
   void csvFormatting();
   void reconnectPolicyBackoff();
   void decoderCarriesGearAndMinMax();
@@ -1050,6 +1064,428 @@ void CoreWhiteBoxTest::deviceSelection() {
   QCOMPARE(duplicate.candidateCount, static_cast<std::size_t>(2));
   QVERIFY(duplicate.matchedName);
   QVERIFY(duplicate.address.empty());
+}
+
+void CoreWhiteBoxTest::traceHistorySamplesAreScaled() {
+  ampbeam::TraceHistory history(4);
+  QVERIFY(history.empty());
+  QCOMPARE(history.size(), std::size_t{0});
+  QCOMPARE(history.capacity(), std::size_t{4});
+  QVERIFY(!history.minimum().has_value());
+  QVERIFY(!history.maximum().has_value());
+  QVERIFY(!history.visibleMinimum().has_value());
+  QVERIFY(!history.visibleMaximum().has_value());
+  QVERIFY(history.samples().empty());
+  QCOMPARE(history.gear(), MeterGear::Unknown);
+  QCOMPARE(history.unit(), Unit::None);
+  QCOMPARE(history.timeSpanMs(), std::uint64_t{10000});
+  QCOMPARE(history.newestTimeMs(), std::uint64_t{0});
+
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.unit = Unit::Volt;
+  for (int index = 0; index < 3; ++index) {
+    measurement.value = static_cast<double>(index + 1);
+    measurement.receivedAtMs = kTraceBaseMs + static_cast<std::uint64_t>(index) * 1000U;
+    history.push(measurement);
+  }
+
+  // The x axis is the fixed 10 s timebase, not the number of samples: the
+  // newest reading sits on the right edge and older ones keep their distance.
+  QCOMPARE(history.size(), std::size_t{3});
+  QVERIFY(!history.empty());
+  QCOMPARE(history.gear(), MeterGear::DcVoltage);
+  QCOMPARE(history.unit(), Unit::Volt);
+  QCOMPARE(history.newestTimeMs(), kTraceBaseMs + 2000U);
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 1.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 3.0));
+
+  auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{3});
+  QVERIFY(nearlyEqual(samples.at(0).x, 0.8));
+  QVERIFY(nearlyEqual(samples.at(1).x, 0.9));
+  QVERIFY(nearlyEqual(samples.at(2).x, 1.0));
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.0));
+  QVERIFY(nearlyEqual(samples.at(1).y, 0.5));
+  QVERIFY(nearlyEqual(samples.at(2).y, 1.0));
+  QVERIFY(samples.at(0).valid);
+  QVERIFY(samples.at(2).valid);
+
+  // A later reading scrolls the first sample left while the timebase stays
+  // constant.
+  measurement.value = 4.0;
+  measurement.receivedAtMs = kTraceBaseMs + 3000U;
+  history.push(measurement);
+  samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{4});
+  QVERIFY(nearlyEqual(samples.at(0).x, 0.7));
+  QVERIFY(nearlyEqual(samples.at(3).x, 1.0));
+
+  // Capacity overflow drops the oldest reading, not the right edge.
+  measurement.value = 5.0;
+  measurement.receivedAtMs = kTraceBaseMs + 4000U;
+  history.push(measurement);
+  QCOMPARE(history.size(), std::size_t{4});
+  QCOMPARE(history.newestTimeMs(), kTraceBaseMs + 4000U);
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 2.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 5.0));
+  samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{4});
+  QVERIFY(nearlyEqual(samples.at(0).x, 0.7));
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.0));
+  QVERIFY(nearlyEqual(samples.at(3).y, 1.0));
+}
+
+void CoreWhiteBoxTest::traceHistoryFlatAndSingleSeries() {
+  ampbeam::TraceHistory history(4);
+
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.unit = Unit::Volt;
+  measurement.value = 5.0;
+  measurement.receivedAtMs = kTraceBaseMs + 2000U;
+  history.push(measurement);
+
+  // A single reading is on the right edge ("now") and on the middle line.
+  auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{1});
+  QVERIFY(nearlyEqual(samples.at(0).x, 1.0));
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.5));
+  QVERIFY(samples.at(0).valid);
+
+  measurement.receivedAtMs = kTraceBaseMs + 3000U;
+  history.push(measurement);
+  samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{2});
+  QVERIFY(nearlyEqual(samples.at(0).x, 0.9));
+  QVERIFY(nearlyEqual(samples.at(1).x, 1.0));
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.5));
+  QVERIFY(nearlyEqual(samples.at(1).y, 0.5));
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 5.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 5.0));
+}
+
+void CoreWhiteBoxTest::traceHistoryStartsANewSeries() {
+  ampbeam::TraceHistory history(8);
+  std::uint64_t time = kTraceBaseMs;
+
+  ampbeam::Measurement reading;
+  reading.value = 1.0;
+  reading.unit = Unit::Volt;
+  reading.gear = MeterGear::DcVoltage;
+  reading.secondary.present = true;
+  reading.secondary.value = 10.0;
+  reading.secondary.unit = Unit::Percent;
+  reading.receivedAtMs = time;
+  history.push(reading);
+  time += 1000U;
+  reading.receivedAtMs = time;
+  history.push(reading);
+  QCOMPARE(history.size(), std::size_t{2});
+  QVERIFY(history.hasSecondary());
+  QCOMPARE(history.secondaryUnit(), Unit::Percent);
+
+  // The same unit on another function is a different series, and its
+  // secondary reading starts over as well.
+  time += 1000U;
+  reading.gear = MeterGear::AcVoltage;
+  reading.secondary = {};
+  reading.receivedAtMs = time;
+  history.push(reading);
+  QCOMPARE(history.size(), std::size_t{1});
+  QCOMPARE(history.gear(), MeterGear::AcVoltage);
+  QVERIFY(!history.hasSecondary());
+  QCOMPARE(history.secondaryUnit(), Unit::None);
+
+  // A range change switches the unit, which also starts over.
+  time += 1000U;
+  reading.unit = Unit::Millivolt;
+  reading.receivedAtMs = time;
+  history.push(reading);
+  QCOMPARE(history.size(), std::size_t{1});
+  QCOMPARE(history.unit(), Unit::Millivolt);
+
+  history.clear();
+  QVERIFY(history.empty());
+  QVERIFY(!history.minimum().has_value());
+  QVERIFY(!history.maximum().has_value());
+  QCOMPARE(history.gear(), MeterGear::Unknown);
+  QCOMPARE(history.unit(), Unit::None);
+
+  // A cleared history starts a new series without comparing against the old
+  // one.
+  time += 1000U;
+  reading.unit = Unit::Volt;
+  reading.gear = MeterGear::DcVoltage;
+  reading.receivedAtMs = time;
+  history.push(reading);
+  QCOMPARE(history.size(), std::size_t{1});
+}
+
+void CoreWhiteBoxTest::traceHistoryMarksGaps() {
+  ampbeam::TraceHistory history(4);
+
+  ampbeam::Measurement overload;
+  overload.gear = MeterGear::DcVoltage;
+  overload.unit = Unit::Volt;
+  overload.value = std::numeric_limits<double>::quiet_NaN();
+  overload.flags.overload = true;
+  overload.receivedAtMs = kTraceBaseMs;
+  history.push(overload);
+
+  QCOMPARE(history.size(), std::size_t{1});
+  QVERIFY(!history.minimum().has_value());
+  QVERIFY(!history.maximum().has_value());
+  auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{1});
+  QVERIFY(!samples.at(0).valid);
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.0));
+
+  // A gap between finite readings keeps its place in the timebase.
+  ampbeam::Measurement reading = overload;
+  reading.flags = {};
+  reading.value = 2.0;
+  reading.receivedAtMs = kTraceBaseMs + 1000U;
+  history.push(reading);
+  reading.value = 1.0;
+  reading.receivedAtMs = kTraceBaseMs + 2000U;
+  history.push(reading);
+  overload.receivedAtMs = kTraceBaseMs + 3000U;
+  history.push(overload);
+  QCOMPARE(history.size(), std::size_t{4});
+  samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{4});
+  QVERIFY(!samples.at(0).valid);
+  QVERIFY(samples.at(1).valid);
+  QVERIFY(samples.at(2).valid);
+  QVERIFY(!samples.at(3).valid);
+  QVERIFY(nearlyEqual(samples.at(1).y, 1.0));
+  QVERIFY(nearlyEqual(samples.at(2).y, 0.0));
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 1.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 2.0));
+
+  // An infinite value is a gap as well and never becomes an extremum.
+  reading.value = std::numeric_limits<double>::infinity();
+  reading.receivedAtMs = kTraceBaseMs + 4000U;
+  history.push(reading);
+  samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{4});
+  QVERIFY(!samples.at(2).valid);
+  QVERIFY(!samples.at(3).valid);
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 2.0));
+}
+
+void CoreWhiteBoxTest::traceHistoryClampsCapacity() {
+  // A zero capacity would break the stored window; it becomes one slot.
+  ampbeam::TraceHistory history(0);
+  QCOMPARE(history.capacity(), std::size_t{1});
+  QCOMPARE(history.timeSpanMs(), std::uint64_t{10000});
+  QVERIFY(history.canZoomTimeIn());
+  QVERIFY(history.canZoomTimeOut());
+  QCOMPARE(history.zoomTimeIn(), std::uint64_t{5000});
+  QCOMPARE(history.zoomTimeOut(), std::uint64_t{10000});
+  QCOMPARE(history.valueZoom(), 1.0);
+  QVERIFY(history.canZoomValueIn());
+  QVERIFY(!history.canZoomValueOut());
+
+  // NCV has no unit but is still a valid series.
+  ampbeam::Measurement reading;
+  reading.gear = MeterGear::Ncv;
+  reading.value = 1.0;
+  reading.receivedAtMs = kTraceBaseMs;
+  history.push(reading);
+  reading.value = 2.0;
+  reading.receivedAtMs = kTraceBaseMs + 1000U;
+  history.push(reading);
+  QCOMPARE(history.size(), std::size_t{1});
+  QCOMPARE(history.unit(), Unit::None);
+  QVERIFY(nearlyEqual(history.samples().at(0).y, 0.5));
+}
+
+void CoreWhiteBoxTest::traceHistoryTimeZoom() {
+  ampbeam::TraceHistory history(200);
+  QCOMPARE(history.timeSpanMs(), std::uint64_t{10000});
+  QVERIFY(history.canZoomTimeIn());
+  QVERIFY(history.canZoomTimeOut());
+
+  // One reading per second for 40 s.
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.unit = Unit::Volt;
+  for (int index = 0; index < 40; ++index) {
+    measurement.value = static_cast<double>(index + 1);
+    measurement.receivedAtMs = kTraceBaseMs + static_cast<std::uint64_t>(index) * 1000U;
+    history.push(measurement);
+  }
+  QCOMPARE(history.size(), std::size_t{40});
+  QCOMPARE(history.newestTimeMs(), kTraceBaseMs + 39000U);
+
+  // The 10 s timebase shows only the newest 11 readings.
+  auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{11});
+  QVERIFY(nearlyEqual(samples.at(0).x, 0.0));
+  QVERIFY(nearlyEqual(samples.at(10).x, 1.0));
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 30.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 40.0));
+
+  // Zooming the timebase out brings older readings back.
+  QCOMPARE(history.zoomTimeOut(), std::uint64_t{30000});
+  QCOMPARE(history.samples().size(), std::size_t{31});
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 10.0));
+
+  QCOMPARE(history.zoomTimeOut(), std::uint64_t{60000});
+  QCOMPARE(history.samples().size(), std::size_t{40});
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 1.0));
+  QVERIFY(!history.canZoomTimeOut());
+  QCOMPARE(history.zoomTimeOut(), std::uint64_t{60000});
+
+  // Zooming in down to the floor narrows the window to the newest readings.
+  QCOMPARE(history.zoomTimeIn(), std::uint64_t{30000});
+  QCOMPARE(history.zoomTimeIn(), std::uint64_t{10000});
+  QCOMPARE(history.samples().size(), std::size_t{11});
+  QCOMPARE(history.zoomTimeIn(), std::uint64_t{5000});
+  QCOMPARE(history.samples().size(), std::size_t{6});
+  QCOMPARE(history.zoomTimeIn(), std::uint64_t{2000});
+  QCOMPARE(history.samples().size(), std::size_t{3});
+  QVERIFY(!history.canZoomTimeIn());
+  QCOMPARE(history.zoomTimeIn(), std::uint64_t{2000});
+}
+
+void CoreWhiteBoxTest::traceHistoryValueZoom() {
+  ampbeam::TraceHistory history(10);
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.unit = Unit::Volt;
+  for (int index = 0; index < 3; ++index) {
+    measurement.value = static_cast<double>(index + 1);
+    measurement.receivedAtMs = kTraceBaseMs + static_cast<std::uint64_t>(index) * 1000U;
+    history.push(measurement);
+  }
+
+  // Fit shows the full range; a value zoom magnifies around the middle.
+  QCOMPARE(history.valueZoom(), 1.0);
+  QVERIFY(history.canZoomValueIn());
+  QVERIFY(!history.canZoomValueOut());
+  QVERIFY(nearlyEqual(history.visibleMinimum().value_or(0.0), 1.0));
+  QVERIFY(nearlyEqual(history.visibleMaximum().value_or(0.0), 3.0));
+  QCOMPARE(history.zoomValueIn(), 2.0);
+  QVERIFY(nearlyEqual(history.visibleMinimum().value_or(0.0), 1.5));
+  QVERIFY(nearlyEqual(history.visibleMaximum().value_or(0.0), 2.5));
+  auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{3});
+  QVERIFY(nearlyEqual(samples.at(0).y, -0.5));
+  QVERIFY(nearlyEqual(samples.at(1).y, 0.5));
+  QVERIFY(nearlyEqual(samples.at(2).y, 1.5));
+
+  QCOMPARE(history.zoomValueIn(), 4.0);
+  QCOMPARE(history.zoomValueIn(), 8.0);
+  QCOMPARE(history.zoomValueIn(), 16.0);
+  QVERIFY(!history.canZoomValueIn());
+  QCOMPARE(history.zoomValueIn(), 16.0);
+
+  QCOMPARE(history.zoomValueOut(), 8.0);
+  QCOMPARE(history.zoomValueOut(), 4.0);
+  QCOMPARE(history.zoomValueOut(), 2.0);
+  QCOMPARE(history.zoomValueOut(), 1.0);
+  QVERIFY(!history.canZoomValueOut());
+  QCOMPARE(history.zoomValueOut(), 1.0);
+  QVERIFY(nearlyEqual(history.visibleMinimum().value_or(0.0), 1.0));
+  QVERIFY(nearlyEqual(history.visibleMaximum().value_or(0.0), 3.0));
+  samples = history.samples();
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.0));
+  QVERIFY(nearlyEqual(samples.at(1).y, 0.5));
+  QVERIFY(nearlyEqual(samples.at(2).y, 1.0));
+}
+
+void CoreWhiteBoxTest::traceHistoryPlotsSecondaryReadings() {
+  ampbeam::TraceHistory history(10);
+  QVERIFY(!history.hasSecondary());
+  QCOMPARE(history.secondaryUnit(), Unit::None);
+
+  // A frequency primary with the duty cycle as the second reading, like the
+  // verified frequency+duty frame.
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::Frequency;
+  measurement.unit = Unit::Hertz;
+  measurement.secondary.present = true;
+  measurement.secondary.unit = Unit::Percent;
+  for (int index = 0; index < 3; ++index) {
+    measurement.value = 50.0 + static_cast<double>(index) * 10.0;
+    measurement.secondary.value = 10.0 + static_cast<double>(index) * 10.0;
+    measurement.receivedAtMs = kTraceBaseMs + static_cast<std::uint64_t>(index) * 1000U;
+    history.push(measurement);
+  }
+
+  QVERIFY(history.hasSecondary());
+  QCOMPARE(history.secondaryUnit(), Unit::Percent);
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 50.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 70.0));
+  QVERIFY(nearlyEqual(history.secondaryMinimum().value_or(0.0), 10.0));
+  QVERIFY(nearlyEqual(history.secondaryMaximum().value_or(0.0), 30.0));
+  QVERIFY(nearlyEqual(history.secondaryVisibleMinimum().value_or(0.0), 10.0));
+  QVERIFY(nearlyEqual(history.secondaryVisibleMaximum().value_or(0.0), 30.0));
+
+  const auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{3});
+  QVERIFY(samples.at(0).secondaryValid);
+  QVERIFY(nearlyEqual(samples.at(0).secondaryY, 0.0));
+  QVERIFY(nearlyEqual(samples.at(1).secondaryY, 0.5));
+  QVERIFY(nearlyEqual(samples.at(2).secondaryY, 1.0));
+
+  // A frame without a second reading leaves a gap in that channel only.
+  measurement.secondary = {};
+  measurement.value = 80.0;
+  measurement.receivedAtMs = kTraceBaseMs + 3000U;
+  history.push(measurement);
+  const auto later = history.samples();
+  QCOMPARE(later.size(), std::size_t{4});
+  QVERIFY(later.at(3).valid);
+  QVERIFY(!later.at(3).secondaryValid);
+  QVERIFY(nearlyEqual(history.secondaryMinimum().value_or(0.0), 10.0));
+  QVERIFY(nearlyEqual(history.secondaryMaximum().value_or(0.0), 30.0));
+}
+
+void CoreWhiteBoxTest::traceHistoryDropsSamplesOutsideTheTimebase() {
+  ampbeam::TraceHistory history(10);
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.unit = Unit::Volt;
+  measurement.value = 1.0;
+  measurement.receivedAtMs = kTraceBaseMs;
+  history.push(measurement);
+  measurement.value = 2.0;
+  measurement.receivedAtMs = kTraceBaseMs + 1000U;
+  history.push(measurement);
+  measurement.value = 3.0;
+  measurement.receivedAtMs = kTraceBaseMs + 12000U;
+  history.push(measurement);
+
+  // The two oldest readings are older than the 10 s window and are not drawn,
+  // but they stay stored in case the user zooms the timebase out.
+  QCOMPARE(history.size(), std::size_t{3});
+  auto samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{1});
+  QVERIFY(nearlyEqual(samples.at(0).x, 1.0));
+  QVERIFY(nearlyEqual(history.minimum().value_or(0.0), 3.0));
+  QVERIFY(nearlyEqual(history.maximum().value_or(0.0), 3.0));
+
+  // A reading in the window appears just left of the newest one.
+  measurement.value = 4.0;
+  measurement.receivedAtMs = kTraceBaseMs + 13000U;
+  history.push(measurement);
+  samples = history.samples();
+  QCOMPARE(samples.size(), std::size_t{2});
+  QVERIFY(nearlyEqual(samples.at(0).x, 0.9));
+  QVERIFY(nearlyEqual(samples.at(1).x, 1.0));
+  QVERIFY(nearlyEqual(samples.at(0).y, 0.0));
+  QVERIFY(nearlyEqual(samples.at(1).y, 1.0));
+
+  // Timestamps below the timebase clamp the window start to zero.
+  ampbeam::TraceHistory early(4);
+  measurement.value = 1.0;
+  measurement.receivedAtMs = 500;
+  early.push(measurement);
+  QVERIFY(nearlyEqual(early.samples().at(0).x, 0.05));
 }
 
 void CoreWhiteBoxTest::decodersReportTheirName() {

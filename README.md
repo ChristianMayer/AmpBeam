@@ -23,6 +23,23 @@ unknown.
 > Everything else is reported as raw bytes or as `Kind::Unknown`. `core/` is
 > gated at 100% line coverage.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/trace-dcv.png" alt="AmpBeam meter face and scrolling signal trace" width="48%">
+  <img src="docs/screenshots/trace-frequency-duty.png" alt="AmpBeam trace with frequency and duty cycle drawn together" width="48%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/raw-frames.png" alt="AmpBeam raw frame log tab" width="60%">
+</p>
+
+The meter face, the fixed-timebase signal trace (primary and secondary values),
+the time/value zoom controls and the optional raw frame log are all part of the
+same application. The screenshots were rendered from the real QML application
+with synthetic frames fed through the real controller and decoder; they are not
+a hardware capture.
+
 ## Suspected compatibility (not a hardware finding)
 
 The protocol resembles the one used by the meters sold as **OWON B35T/B41** and
@@ -39,7 +56,7 @@ series 61 is the only series whose 15 byte format has been confirmed.
 | --- | --- |
 | `core` (`ampbeam_core`) | Dependency-free C++23 measurement model, hex helpers, GATT profiles, capture/fixture handling and the `FrameDecoder` implementations. |
 | `ble` (`ampbeam_ble`) | Qt 6 Bluetooth transport: device discovery, connection, service discovery, notification subscription and command writes. One implementation for Linux (BlueZ over D-Bus) and Android. |
-| `app` | Qt Quick desktop and Android application (`ampbeam`) with a live meter face, automatic discovery/reconnect, verified front-panel keys, capture recording and CSV export. |
+| `app` | Qt Quick desktop and Android application (`ampbeam`) with a live meter face, a signal trace of the recent readings, automatic discovery/reconnect, verified front-panel keys, capture recording and CSV export. |
 | `cli` (`ampbeam-cli`) | Headless mirror, CSV export, scanner and tracer. Mirrors the meter display by default and emits machine-readable TSV captures that convert into replayable JSON fixtures. Usage: [`cli/README.md`](cli/README.md). |
 | `tests` | White-box, fixture black-box, CLI black-box, transport and controller suites plus the coverage gate. |
 | `assets` | Branding: the official logo and where each derived icon belongs. |
@@ -120,14 +137,28 @@ stream is normal; it is never treated as an error.
   protocol proves that meaning.
 * **Select**, **Range** and **Hold** send the three verified front-panel keys;
   they are enabled only while streaming.
-* **Live log** shows every frame in the capture format
+* The default **Trace** tab plots the proven readings on a fixed timebase
+  (10 s by default, selectable from 2 s to 60 s). The newest reading sits on the
+  right edge, older readings scroll left and leave the frame; the axis is
+  labelled with the time span and "now", and the clock time of the last
+  reading is shown above the chart. It is not a decoded oscilloscope: the
+  meter's scope mode is not implemented, so only measurements the decoder
+  proves are plotted, and a gap marks an overload or a frame without a numeric
+  value. A primary value and its secondary reading (for example frequency and
+  duty cycle, or AC voltage and frequency) are drawn together in their own
+  colours and scales. A mode or unit change starts a new series instead of
+  joining two unrelated functions. The **TIME** buttons change the timebase and
+  the **VALUE** buttons magnify the measurement range; **Pause** freezes the
+  curve, **Continue** follows new readings again, and **Clear** empties it.
+* The **Raw** tab shows extended information: every frame in the capture format
   (`epochMs TAB length TAB hex TAB detail`). **Record capture...** writes that
   stream to a file that `ampbeam-cli --import` accepts, and **Export CSV...**
   writes the decoded readings collected during the session.
-* The Device tab shows the series id and firmware reported by the meter.
+* The **Device** tab shows the series id and firmware reported by the meter.
 
-A frame the decoder cannot prove is never shown as a reading. It stays in the
-raw log, and the meter face keeps the last confirmed value.
+A frame the decoder cannot prove is never shown as a reading. It appears only in
+that raw tab (and in a capture file), while the meter face and the trace keep
+the last confirmed value.
 
 The CSV and capture file choosers call the desktop's XDG file-chooser portal
 directly. KDE and GNOME therefore show their own dialog even when the
