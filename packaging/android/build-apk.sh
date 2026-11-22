@@ -74,7 +74,30 @@ fi
 export QT_ANDROID_PATH QT_HOST_PATH ANDROID_SDK_ROOT ANDROID_NDK_ROOT
 
 cmake --preset android-release
-cmake --build --preset android-release
+
+# Maven Central occasionally rate-limits shared CI runners with HTTP 429.
+# Gradle caches completed downloads, so a short backoff and retry usually
+# succeeds. Other build errors fail immediately.
+build_log=$(mktemp)
+trap 'rm -f "$build_log"' EXIT
+build_ok=0
+for attempt in 1 2 3; do
+  if cmake --build --preset android-release 2>&1 | tee "$build_log"; then
+    build_ok=1
+    break
+  fi
+  if ! grep -q 'status code 429' "$build_log"; then
+    break
+  fi
+  if [[ "$attempt" -lt 3 ]]; then
+    echo "Maven Central rate limit; retrying the Android build in $((attempt * 30)) s" >&2
+    sleep $((attempt * 30))
+  fi
+done
+if [[ "$build_ok" -ne 1 ]]; then
+  echo "error: Android build failed" >&2
+  exit 1
+fi
 
 apk_dir="$build_dir/app/android-build/build/outputs/apk/release"
 unsigned=$(find "$apk_dir" -maxdepth 1 -name '*unsigned.apk' -print -quit 2>/dev/null || true)

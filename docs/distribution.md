@@ -204,6 +204,11 @@ linuxdeploy binaries and a pinned type2 AppImage runtime, and verifies their
 SHA-256 checksums before use. The APK script configures the `android-release`
 preset, builds the unsigned APK, aligns and signs it, and verifies the result.
 
+The Android CI job pins SDK platform 34 and build-tools 34.0.0, hides every
+other installed platform from `androiddeployqt`, and routes Maven Central
+through a mirror with a Gradle cache. The build retries when Maven Central
+answers HTTP 429. Local runs use whichever SDK `ANDROID_SDK_ROOT` points at.
+
 Both workflows run a smoke test before uploading:
 
 * The AppImage is started under `Xvfb`; CI fails if the QML module does not
