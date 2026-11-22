@@ -12,25 +12,59 @@
 namespace ampbeam {
 namespace {
 
-void appendValue(std::string& out, double value, Unit unit, int displayDecimals) {
+/// Number exactly as the LCD shows it, or `---` when there is none.
+[[nodiscard]] std::string numericText(double value, int displayDecimals) {
   if (std::isnan(value)) {
-    out += "---";
-  } else if (displayDecimals >= 0) {
-    out += formatFixedNumber(value, displayDecimals);
-  } else {
-    out += formatNumber(value, 6);
+    return "---";
   }
+  if (displayDecimals >= 0) {
+    return formatFixedNumber(value, displayDecimals);
+  }
+  return formatNumber(value, 6);
+}
+
+/// `numericText` followed by the unit symbol when there is one.
+[[nodiscard]] std::string valueWithUnit(double value, Unit unit, int displayDecimals) {
+  std::string out = numericText(value, displayDecimals);
   const char* symbol = unitSymbol(unit);
   if (symbol != nullptr && *symbol != '\0') {
     out += ' ';
     out += symbol;
   }
+  return out;
 }
 
 } // namespace
 
 std::string monitorModeName(const Measurement& measurement) {
   return meterGearName(measurement.gear);
+}
+
+std::string monitorValueText(const Measurement& measurement) {
+  return numericText(measurement.value, measurement.displayDecimals);
+}
+
+std::string monitorUnitText(const Measurement& measurement) {
+  const char* symbol = unitSymbol(measurement.unit);
+  return symbol != nullptr ? std::string{symbol} : std::string{};
+}
+
+std::string monitorSecondaryText(const Measurement& measurement) {
+  if (!measurement.secondary.present) {
+    return {};
+  }
+  std::string out;
+  // The second reading is the stored reference in REL mode and MAX in the
+  // MinMax view; both are stated by docs/protocol.md. Everything else is shown
+  // without a label rather than guessed.
+  if (measurement.flags.relative) {
+    out = "REF ";
+  } else if (measurement.flags.minMax) {
+    out = "MAX ";
+  }
+  out += valueWithUnit(measurement.secondary.value, measurement.secondary.unit,
+                       measurement.secondary.displayDecimals);
+  return out;
 }
 
 bool monitorGearHasRanges(MeterGear gear) {
@@ -56,7 +90,7 @@ bool monitorGearHasRanges(MeterGear gear) {
 std::string monitorLine(const Measurement& measurement) {
   std::string out = monitorModeName(measurement);
   out += "  ";
-  appendValue(out, measurement.value, measurement.unit, measurement.displayDecimals);
+  out += valueWithUnit(measurement.value, measurement.unit, measurement.displayDecimals);
 
   if (measurement.flags.overload) {
     out += "  [overload]";
@@ -79,16 +113,7 @@ std::string monitorLine(const Measurement& measurement) {
 
   if (measurement.secondary.present) {
     out += "  |  ";
-    // The second reading is the stored reference in REL mode and MAX in the
-    // MinMax view; both are stated by docs/protocol.md. Everything else is
-    // shown without a label rather than guessed.
-    if (measurement.flags.relative) {
-      out += "REF ";
-    } else if (measurement.flags.minMax) {
-      out += "MAX ";
-    }
-    appendValue(out, measurement.secondary.value, measurement.secondary.unit,
-                measurement.secondary.displayDecimals);
+    out += monitorSecondaryText(measurement);
   }
 
   return out;

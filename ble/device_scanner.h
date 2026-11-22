@@ -10,6 +10,10 @@
 #include <QObject>
 #include <QVariantList>
 
+#include "ampbeam/core/selection.hpp"
+
+#include <cstddef>
+
 namespace ampbeam::ble {
 
 /// Discovers BLE devices and exposes them to QML/CLI code.
@@ -55,5 +59,24 @@ private:
   bool m_running = false;
   int m_timeoutMs = 12000;
 };
+
+/// Owned form of `ampbeam::DeviceSelectionResult` for a scanner's device model.
+struct MeterSelection {
+  ampbeam::DeviceSelectionStatus status = ampbeam::DeviceSelectionStatus::None;
+  QString address;
+  QString name;
+  std::size_t candidateCount = 0;
+  std::size_t discoveredCount = 0;
+  bool matchedService = false;
+  bool matchedName = false;
+};
+
+/// Applies the core selection algorithm to `DeviceScanner::devices()` entries.
+///
+/// Both front-ends use this so the QVariant-to-candidate translation and the
+/// "never guess between several meters" policy live in one place.
+[[nodiscard]] MeterSelection selectMeterFromDevices(const QVariantList& devices,
+                                                    const QString& serviceUuid,
+                                                    const QString& nameFilter = {});
 
 } // namespace ampbeam::ble

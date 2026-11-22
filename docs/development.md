@@ -6,7 +6,8 @@ Required:
 
 * CMake 3.21+ and Ninja
 * A C++23 compiler (GCC 13 or Clang 17 tested)
-* Qt 6.5+ with `Core`, `Gui`, `Bluetooth`, `Quick`, `QuickControls2` and `Qml`
+* Qt 6.5+ with `Core`, `Gui`, `Bluetooth`, `Quick`, `QuickControls2`,
+  `QuickDialogs2` and `Qml`
 * Linux: BlueZ with a powered adapter
 * Android (optional): Qt for Android arm64, SDK 34, NDK r26, min SDK 24,
   target 34
@@ -57,6 +58,22 @@ ctest --preset linux-coverage        # includes the 100% core coverage gate
 ./build/linux-debug/cli/ampbeam-cli --device <address>
 ./build/linux-debug/app/ampbeam
 ```
+
+The desktop application mirrors the CLI's live session with a GUI: it starts the
+same automatic discovery/reconnect session on launch, **Devices...** allows an
+explicit choice when several BLE devices are nearby, and the large meter face
+shows the verified mode, reading, unit and indicators. The verified **Select**,
+**Range** and **Hold** keys are available while streaming. The live log uses the
+capture format and can be recorded to a file; **Export CSV...** writes the
+decoded readings of the current session. The Device tab shows the series id and
+firmware reported by the meter.
+
+Qt Quick's `FileDialog` uses the desktop's native file chooser only when a
+platform theme provides one. The CSV and capture choosers therefore call the
+XDG file-chooser portal directly, which gives the KDE/GNOME dialog even when the
+distribution's Qt lacks the `xdgdesktopportal` platform theme (as on Kubuntu).
+Install and enable `xdg-desktop-portal` with its KDE or GTK backend; without a
+reachable portal the Qt Quick chooser is used.
 
 Without an action option the CLI is a live mirror: it scans, connects, renders
 one self-overwriting line (mode, value, unit, indicators) and reconnects with
@@ -235,6 +252,8 @@ Notes:
 | Symptom | Cause / fix |
 | --- | --- |
 | `qt.qpa.plugin: Could not load the Qt platform plugin "xcb"` | No display. Use a desktop session or `xvfb-run`. |
+| `qt.bluetooth.bluez: Missing CAP_NET_ADMIN permission...` | Informational: Qt cannot classify random/public LE addresses because the optional BlueZ management socket needs `CAP_NET_ADMIN`. AmpBeam uses BlueZ over D-Bus, so scanning and connecting still work. The GUI and CLI hide this info message unless `QT_LOGGING_RULES` explicitly configures the `qt.bluetooth.bluez` category. |
+| File dialog is the Qt Quick chooser, not the desktop's dialog | The CSV/capture choosers use the XDG portal directly. Install and enable `xdg-desktop-portal` plus a KDE or GTK backend; without it the app falls back to the Qt Quick chooser. On GTK desktops the app also selects the `gtk3` platform theme; `QT_QPA_PLATFORMTHEME` overrides the theme choice. |
 | `Bluetooth adapter not available` / no devices found | `bluetoothd` not running or the adapter is blocked. Check `bluetoothctl show` and `rfkill list bluetooth`. |
 | `Service 0000fff0-… not found` | The device is not in BLE mode or uses a different GATT profile. Use a GATT dump. |
 | Android: `Bluetooth permission was not granted` | Grant nearby-devices permission in Android settings. |

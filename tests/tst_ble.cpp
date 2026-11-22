@@ -14,6 +14,7 @@
 #include <QSignalSpy>
 #include <QStringList>
 #include <QTest>
+#include <QVariantMap>
 
 class BleTest final : public QObject {
   Q_OBJECT
@@ -21,6 +22,7 @@ class BleTest final : public QObject {
 private slots:
   void scannerStartsIdle();
   void scannerIgnoresUnknownAddresses();
+  void selectsMeterFromScannerModel();
   void clientStartsDisconnected();
   void clientRejectsAnEmptyAddress();
   void clientReportsMissingCharacteristics();
@@ -44,6 +46,45 @@ void BleTest::scannerIgnoresUnknownAddresses() {
   ampbeam::ble::DeviceScanner scanner;
   QCOMPARE(scanner.nameForAddress(QString()), QString());
   QCOMPARE(scanner.nameForAddress(QStringLiteral("not-an-address")), QString());
+}
+
+void BleTest::selectsMeterFromScannerModel() {
+  const QString service = QStringLiteral("0000fff0-0000-1000-8000-00805f9b34fb");
+  const QString otherService = QStringLiteral("0000180f-0000-1000-8000-00805f9b34fb");
+
+  const auto empty = ampbeam::ble::selectMeterFromDevices(QVariantList{}, service);
+  QCOMPARE(empty.status, ampbeam::DeviceSelectionStatus::None);
+  QCOMPARE(empty.discoveredCount, static_cast<std::size_t>(0));
+
+  const QVariantMap meter{{"address", "AA:BB:CC:DD:EE:01"},
+                          {"name", "meter"},
+                          {"rssi", -40},
+                          {"services", otherService + ", " + service}};
+  const QVariantMap other{{"address", "AA:BB:CC:DD:EE:02"},
+                          {"name", "other"},
+                          {"rssi", -70},
+                          {"services", otherService}};
+
+  const auto selected = ampbeam::ble::selectMeterFromDevices(QVariantList{meter, other}, service);
+  QCOMPARE(selected.status, ampbeam::DeviceSelectionStatus::Selected);
+  QCOMPARE(selected.address, QStringLiteral("AA:BB:CC:DD:EE:01"));
+  QCOMPARE(selected.name, QStringLiteral("meter"));
+  QCOMPARE(selected.candidateCount, static_cast<std::size_t>(1));
+  QCOMPARE(selected.discoveredCount, static_cast<std::size_t>(2));
+  QVERIFY(selected.matchedService);
+
+  const QVariantMap secondMeter{
+      {"address", "AA:BB:CC:DD:EE:03"}, {"name", "meter-2"}, {"rssi", -50}, {"services", service}};
+  const auto multiple =
+      ampbeam::ble::selectMeterFromDevices(QVariantList{meter, secondMeter}, service);
+  QCOMPARE(multiple.status, ampbeam::DeviceSelectionStatus::Multiple);
+  QCOMPARE(multiple.candidateCount, static_cast<std::size_t>(2));
+
+  const auto byName = ampbeam::ble::selectMeterFromDevices(QVariantList{meter, secondMeter},
+                                                           service, QStringLiteral("meter-2"));
+  QCOMPARE(byName.status, ampbeam::DeviceSelectionStatus::Selected);
+  QCOMPARE(byName.address, QStringLiteral("AA:BB:CC:DD:EE:03"));
+  QVERIFY(byName.matchedName);
 }
 
 void BleTest::clientStartsDisconnected() {

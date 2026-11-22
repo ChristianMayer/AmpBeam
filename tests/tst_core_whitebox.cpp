@@ -112,6 +112,7 @@ private slots:
   void measurementFormatting();
   void monitorModeNames();
   void monitorLineFormatting();
+  void monitorDisplayParts();
   void csvFormatting();
   void reconnectPolicyBackoff();
   void decoderCarriesGearAndMinMax();
@@ -127,6 +128,7 @@ private slots:
   void framerStateMachine();
   void deviceInfoAndCommands();
   void captureEdgeCases();
+  void captureLineFormatting();
   void fixtureJsonEscapesEveryCharacter();
   void deviceSelection();
   void decodersReportTheirName();
@@ -394,6 +396,52 @@ void CoreWhiteBoxTest::monitorLineFormatting() {
   QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::Ncv));
   QVERIFY(!ampbeam::monitorGearHasRanges(MeterGear::Unknown));
   QVERIFY(!ampbeam::monitorGearHasRanges(static_cast<MeterGear>(200)));
+}
+
+void CoreWhiteBoxTest::monitorDisplayParts() {
+  // The GUI shows mode, number and unit separately; the pieces must match the
+  // single-line mirror exactly.
+  ampbeam::Measurement measurement;
+  measurement.gear = MeterGear::DcVoltage;
+  measurement.value = 4.998;
+  measurement.unit = Unit::Volt;
+  measurement.displayDecimals = 3;
+  QCOMPARE(q(ampbeam::monitorValueText(measurement)), QStringLiteral("4.998"));
+  QCOMPARE(q(ampbeam::monitorUnitText(measurement)), QStringLiteral("V"));
+  QVERIFY(ampbeam::monitorSecondaryText(measurement).empty());
+
+  // A blank or overloaded display has no number.
+  measurement.value = std::numeric_limits<double>::quiet_NaN();
+  QCOMPARE(q(ampbeam::monitorValueText(measurement)), QStringLiteral("---"));
+
+  // Without LCD decimals (NCV field levels, synthetic values) the number is
+  // formatted without trailing zeros.
+  measurement.value = 2.0;
+  measurement.displayDecimals = -1;
+  measurement.unit = Unit::None;
+  QCOMPARE(q(ampbeam::monitorValueText(measurement)), QStringLiteral("2"));
+  QVERIFY(ampbeam::monitorUnitText(measurement).empty());
+
+  // The secondary reading keeps the confirmed REL/MinMax label.
+  measurement = {};
+  measurement.secondary.present = true;
+  measurement.secondary.value = 9.371;
+  measurement.secondary.unit = Unit::Millivolt;
+  measurement.secondary.displayDecimals = 3;
+  QCOMPARE(q(ampbeam::monitorSecondaryText(measurement)), QStringLiteral("9.371 mV"));
+
+  measurement.flags.minMax = true;
+  QCOMPARE(q(ampbeam::monitorSecondaryText(measurement)), QStringLiteral("MAX 9.371 mV"));
+
+  measurement.flags = {};
+  measurement.flags.relative = true;
+  QCOMPARE(q(ampbeam::monitorSecondaryText(measurement)), QStringLiteral("REF 9.371 mV"));
+
+  // A NaN secondary is still printable.
+  measurement.flags = {};
+  measurement.secondary.value = std::numeric_limits<double>::quiet_NaN();
+  measurement.secondary.unit = Unit::None;
+  QCOMPARE(q(ampbeam::monitorSecondaryText(measurement)), QStringLiteral("---"));
 }
 
 void CoreWhiteBoxTest::csvFormatting() {
@@ -879,6 +927,17 @@ void CoreWhiteBoxTest::captureEdgeCases() {
   const auto empty = ampbeam::parseCaptureLog("");
   QVERIFY(empty.frames.empty());
   QVERIFY(empty.warnings.empty());
+}
+
+void CoreWhiteBoxTest::captureLineFormatting() {
+  // The CLI and the GUI share this exact line, so the log, a recorded capture
+  // and the importer agree byte for byte.
+  const Bytes frame = bytes({0x01, 0xAB, 0xFF});
+  QCOMPARE(q(ampbeam::captureLine(42, frame, "meter: DCV 4.998 V")),
+           QStringLiteral("42\t3\t01 AB FF\tmeter: DCV 4.998 V"));
+
+  const Bytes empty;
+  QCOMPARE(q(ampbeam::captureLine(0, empty, "")), QStringLiteral("0\t0\t\t"));
 }
 
 void CoreWhiteBoxTest::fixtureJsonEscapesEveryCharacter() {

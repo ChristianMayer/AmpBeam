@@ -7,6 +7,9 @@
 #include <QVariantMap>
 
 #include <algorithm>
+#include <cstddef>
+#include <string>
+#include <vector>
 
 namespace ampbeam::ble {
 namespace {
@@ -135,6 +138,40 @@ void DeviceScanner::rebuildModel() {
   }
 
   emit devicesChanged();
+}
+
+MeterSelection selectMeterFromDevices(const QVariantList& devices, const QString& serviceUuid,
+                                      const QString& nameFilter) {
+  std::vector<std::string> addresses;
+  std::vector<std::string> names;
+  std::vector<std::string> services;
+  addresses.reserve(static_cast<std::size_t>(devices.size()));
+  names.reserve(static_cast<std::size_t>(devices.size()));
+  services.reserve(static_cast<std::size_t>(devices.size()));
+  for (const QVariant& value : devices) {
+    const QVariantMap device = value.toMap();
+    addresses.push_back(device.value(QStringLiteral("address")).toString().toStdString());
+    names.push_back(device.value(QStringLiteral("name")).toString().toStdString());
+    services.push_back(device.value(QStringLiteral("services")).toString().toStdString());
+  }
+
+  std::vector<ampbeam::DeviceCandidate> candidates;
+  candidates.reserve(addresses.size());
+  for (std::size_t index = 0; index < addresses.size(); ++index) {
+    candidates.push_back({addresses[index], names[index], services[index]});
+  }
+
+  const ampbeam::DeviceSelectionResult selection =
+      ampbeam::selectMeterDevice(candidates, serviceUuid.toStdString(), nameFilter.toStdString());
+  MeterSelection result;
+  result.status = selection.status;
+  result.address = QString::fromStdString(std::string(selection.address));
+  result.name = QString::fromStdString(std::string(selection.name));
+  result.candidateCount = selection.candidateCount;
+  result.discoveredCount = selection.discoveredCount;
+  result.matchedService = selection.matchedService;
+  result.matchedName = selection.matchedName;
+  return result;
 }
 
 } // namespace ampbeam::ble

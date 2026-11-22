@@ -57,7 +57,7 @@ only in the explicitly unverified compatibility note in `README.md`.
 | `core/` (`ampbeam_core`) | Dependency-free C++23: `Measurement`, `Unit`, `Flags`, `GattProfile`, hex helpers, capture/fixture handling, `FrameDecoder` + `RawDecoder` / `MeterDecoder`. Strictly warning-clean. |
 | `core/include/ampbeam/core/` | Public headers (`.hpp`). |
 | `ble/` (`ampbeam_ble`) | Qt Bluetooth transport: `DeviceScanner`, `MultimeterClient`, permission helper. Headers use `.h`. |
-| `app/` (`ampbeam`) | Qt Quick application (`Main.qml`, module URI `AmpBeam`) and `AppController` (registered via `QML_ELEMENT`). Also the Android manifest overlay and the desktop entry. |
+| `app/` (`ampbeam`) | Qt Quick application (`Main.qml`, module URI `AmpBeam`) with the reusable `MeterDisplay`, `IndicatorChip`, `AppButton` and `DeviceDialog` QML components and `AppController` (registered via `QML_ELEMENT`), plus `PortalFileDialog` for the XDG portal file chooser. Also the Android manifest overlay and the desktop entry. |
 | `cli/` (`ampbeam-cli`) | Headless mirror / CSV export / scan / capture / import / replay tool. Usage: `cli/README.md`. |
 | `tests/` | White-box (`tst_core_whitebox`), fixture black box (`tst_core_blackbox`), CLI black box (`tst_cli`), transport (`tst_ble`) and controller (`tst_app`) suites, plus the hardware bench and the coverage gate. |
 | `assets/branding/` | Logo source of truth + Android icon derivation script. |
@@ -75,7 +75,7 @@ needs the versions below. Build trees are local too (`build/` is ignored).
 | Item | Required |
 | --- | --- |
 | CMake / Ninja | 3.21+ / any recent |
-| Qt | 6.5+ with `Core`, `Gui`, `Bluetooth`, `Quick`, `QuickControls2`, `Qml` |
+| Qt | 6.5+ with `Core`, `Gui`, `Bluetooth`, `Quick`, `QuickControls2`, `QuickDialogs2`, `Qml` |
 | Compiler | C++23 (`GCC 13` or `Clang 17` tested) |
 | Android (optional) | Qt for Android arm64, SDK 34, NDK r26, min SDK 24, target 34 |
 | BLE on Linux | BlueZ with a powered adapter |

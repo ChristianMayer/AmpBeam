@@ -31,7 +31,8 @@ if(AMPBEAM_ENABLE_COVERAGE)
   add_link_options(--coverage)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Bluetooth Quick QuickControls2 Qml)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Bluetooth Quick QuickControls2
+                                                  QuickDialogs2 Qml)
 qt_standard_project_setup()
 
 if(ANDROID)

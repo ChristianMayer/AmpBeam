@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +36,14 @@ struct CaptureParseResult {
 /// Blank lines, lines starting with '#' and trailing " # ..." comments are
 /// ignored.
 [[nodiscard]] CaptureParseResult parseCaptureLog(std::string_view text);
+
+/// One capture-log line without the trailing newline:
+/// `<epochMs>TAB<length>TAB<hex>TAB<detail>`.
+///
+/// The CLI and the GUI both use this so the on-screen log, the recorded capture
+/// and the importer can never drift apart.
+[[nodiscard]] std::string captureLine(std::uint64_t receivedAtMs,
+                                      std::span<const std::uint8_t> frame, std::string_view detail);
 
 struct FixtureMetadata {
   std::string name;

@@ -47,6 +47,28 @@ ampbeam_set_warnings(tst_ble)
 add_test(NAME ble-unit COMMAND tst_ble)
 
 # ---------------------------------------------------------------------------
+# Pure request-construction tests for the desktop portal file chooser. The
+# portal itself needs a running desktop session, so only the deterministic
+# helpers are tested here.
+# ---------------------------------------------------------------------------
+find_package(Qt6 QUIET OPTIONAL_COMPONENTS DBus)
+if(TARGET Qt6::DBus AND NOT ANDROID)
+  add_executable(tst_portal
+    tst_portal.cpp
+    ${PROJECT_SOURCE_DIR}/app/portal_file_dialog.cpp
+    ${PROJECT_SOURCE_DIR}/app/portal_file_dialog.h
+  )
+  target_include_directories(tst_portal PRIVATE
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/app
+  )
+  target_link_libraries(tst_portal PRIVATE Qt6::Core Qt6::DBus Qt6::Qml Qt6::Test)
+  target_compile_definitions(tst_portal PRIVATE AMPBEAM_HAVE_QTDBUS=1)
+  ampbeam_set_warnings(tst_portal)
+  add_test(NAME portal-unit COMMAND tst_portal)
+endif()
+
+# ---------------------------------------------------------------------------
 # Headless tests for the Qt Quick controller's notification pipeline.
 # ---------------------------------------------------------------------------
 add_executable(tst_app

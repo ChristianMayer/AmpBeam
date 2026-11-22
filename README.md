@@ -39,7 +39,7 @@ series 61 is the only series whose 15 byte format has been confirmed.
 | --- | --- |
 | `core` (`ampbeam_core`) | Dependency-free C++23 measurement model, hex helpers, GATT profiles, capture/fixture handling and the `FrameDecoder` implementations. |
 | `ble` (`ampbeam_ble`) | Qt 6 Bluetooth transport: device discovery, connection, service discovery, notification subscription and command writes. One implementation for Linux (BlueZ over D-Bus) and Android. |
-| `app` | Qt Quick application (`ampbeam`) for Linux desktop and Android. |
+| `app` | Qt Quick desktop and Android application (`ampbeam`) with a live meter face, automatic discovery/reconnect, verified front-panel keys, capture recording and CSV export. |
 | `cli` (`ampbeam-cli`) | Headless mirror, CSV export, scanner and tracer. Mirrors the meter display by default and emits machine-readable TSV captures that convert into replayable JSON fixtures. Usage: [`cli/README.md`](cli/README.md). |
 | `tests` | White-box, fixture black-box, CLI black-box, transport and controller suites plus the coverage gate. |
 | `assets` | Branding: the official logo and where each derived icon belongs. |
@@ -70,7 +70,8 @@ and no I/O, so the same decoder is shared by the GUI, the CLI and unit tests.
 ## Building
 
 Requirements: CMake 3.21+, Ninja, a C++23 compiler (GCC 13 or Clang 17), and
-Qt 6.5+ with the `Core`, `Gui`, `Bluetooth`, `Quick`, `QuickControls2` and `Qml`
+Qt 6.5+ with the `Core`, `Gui`, `Bluetooth`, `Quick`, `QuickControls2`,
+`QuickDialogs2` and `Qml`
 modules. For Android, add a Qt for Android arm64 kit plus the Android SDK 34 and
 NDK r26.
 
@@ -101,6 +102,42 @@ adb install -r build/android-arm64/app/android-build/build/outputs/apk/debug/and
 
 Linux Bluetooth requirements and troubleshooting are documented in
 [docs/development.md](docs/development.md).
+
+### Desktop application
+
+```bash
+./build/linux-debug/app/ampbeam
+```
+
+The window starts the same automatic session as the CLI: it discovers the meter
+immediately, connects and reconnects with backoff. **Stop** cancels that search;
+**Devices...** opens an explicit BLE picker, which is also shown automatically
+when several devices are nearby and the unique meter cannot be chosen. A quiet
+stream is normal; it is never treated as an error.
+* The meter face shows the verified mode, the reading at the LCD's own decimal
+  resolution, the unit and the indicators (HOLD, REL, AUTO/MANUAL, MINMAX,
+  OVERLOAD). The secondary reading is labelled `MAX` or `REF` only where the
+  protocol proves that meaning.
+* **Select**, **Range** and **Hold** send the three verified front-panel keys;
+  they are enabled only while streaming.
+* **Live log** shows every frame in the capture format
+  (`epochMs TAB length TAB hex TAB detail`). **Record capture...** writes that
+  stream to a file that `ampbeam-cli --import` accepts, and **Export CSV...**
+  writes the decoded readings collected during the session.
+* The Device tab shows the series id and firmware reported by the meter.
+
+A frame the decoder cannot prove is never shown as a reading. It stays in the
+raw log, and the meter face keeps the last confirmed value.
+
+The CSV and capture file choosers call the desktop's XDG file-chooser portal
+directly. KDE and GNOME therefore show their own dialog even when the
+distribution's Qt does not ship the `xdgdesktopportal` platform theme (as on
+Kubuntu). The portal must be installed and running: `xdg-desktop-portal` plus
+`xdg-desktop-portal-kde` or `xdg-desktop-portal-gtk`. Without a reachable
+portal the Qt Quick chooser is used. On GTK desktops the app also selects the
+`gtk3` platform theme; `QT_QPA_PLATFORMTHEME` overrides the theme choice.
+Inside the dev-container the host's dialog is available only while the host
+session bus is reachable.
 
 ## Using the CLI as a computer multimeter
 

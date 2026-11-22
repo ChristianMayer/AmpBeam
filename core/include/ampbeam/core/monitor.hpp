@@ -15,6 +15,21 @@ namespace ampbeam {
 /// frame did not establish one.
 [[nodiscard]] std::string monitorModeName(const Measurement& measurement);
 
+/// Numeric part of a reading as the meter displays it, e.g. `4.998`, or `---`
+/// when there is no number (blank display or overload). No unit.
+///
+/// This is the same text `monitorLine` prints, split out for a GUI that draws
+/// the number and the unit with different sizes.
+[[nodiscard]] std::string monitorValueText(const Measurement& measurement);
+
+/// Unit symbol of the main reading (`V`, `mV`, `Ω`, ...); empty when the
+/// reading has no unit (NCV field level, duty cycle is handled by its unit).
+[[nodiscard]] std::string monitorUnitText(const Measurement& measurement);
+
+/// Secondary reading with its confirmed role label (`MAX 9.371 mV`,
+/// `REF -2.432 mV`), or an empty string when the frame carries none.
+[[nodiscard]] std::string monitorSecondaryText(const Measurement& measurement);
+
 /// `true` for the gears whose ranges can be selected (DCV, ACV, DCA, ACA,
 /// resistance, capacitance, frequency). Continuity, diode, duty, NCV and unknown
 /// gears return `false`, so an absent AUTO bit is not reported as "manual" for

@@ -12,10 +12,13 @@
 
 #include "ampbeam/core/hex.hpp"
 
+#include <QFile>
 #include <QMetaObject>
 #include <QSignalSpy>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTest>
+#include <QVariantMap>
 
 #include <array>
 #include <cstdint>
@@ -66,6 +69,11 @@ private slots:
   void nonMeasurementFramesKeepTheLastValue();
   void identicalPayloadsDoNotRepeatNotifications();
   void logRingBufferIsBounded();
+  void displayFieldsDescribeTheReading();
+  void indicatorsDescribeVerifiedFlags();
+  void csvExportWritesOnlyDecodedReadings();
+  void captureRecordsFramedCaptureLines();
+  void keyPressIsRejectedWhenIdleOrUnverified();
 };
 
 void AppControllerTest::startsIdle() {
@@ -78,6 +86,19 @@ void AppControllerTest::startsIdle() {
   QVERIFY(!controller.connected());
   QVERIFY(!controller.streaming());
   QVERIFY(controller.devices().isEmpty());
+  QVERIFY(!controller.hasReading());
+  QCOMPARE(controller.numberText(), QStringLiteral("—"));
+  QVERIFY(controller.modeText().isEmpty());
+  QVERIFY(controller.unitText().isEmpty());
+  QVERIFY(controller.secondaryText().isEmpty());
+  QVERIFY(controller.indicators().isEmpty());
+  QVERIFY(controller.lastUpdateText().isEmpty());
+  QVERIFY(controller.detailText().isEmpty());
+  QCOMPARE(controller.readingCount(), 0);
+  QVERIFY(!controller.capturing());
+  QCOMPARE(controller.capturedFrames(), 0);
+  QVERIFY(!controller.autoConnecting());
+  QVERIFY(!controller.deviceSelectionRequired());
 }
 
 void AppControllerTest::clearLogEmits() {
@@ -131,9 +152,10 @@ void AppControllerTest::notificationUpdatesValueAndRawHex() {
   QCOMPARE(rawSpy.count(), 1);
   QCOMPARE(logSpy.count(), 1);
   const QStringList parts = controller.logText().split(QLatin1Char('\t'));
-  QCOMPARE(parts.size(), 3);
+  QCOMPARE(parts.size(), 4);
   QCOMPARE(parts.at(1), QStringLiteral("15"));
   QCOMPARE(parts.at(2), controller.rawHex());
+  QVERIFY(parts.at(3).contains(QStringLiteral("dp=3")));
 }
 
 void AppControllerTest::splitFramesAreBufferedUntilComplete() {
@@ -182,6 +204,138 @@ void AppControllerTest::logRingBufferIsBounded() {
   }
   const QStringList lines = controller.logText().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
   QCOMPARE(lines.size(), 500);
+}
+
+void AppControllerTest::displayFieldsDescribeTheReading() {
+  AppController controller;
+  QSignalSpy readingSpy(&controller, &AppController::readingChanged);
+
+  // Gear 0 (DCV), decimal point 3, magnitude 4998 -> 4.998 V DC.
+  QVERIFY(deliver(controller, frame15(3, 0, 4998)));
+
+  QVERIFY(controller.hasReading());
+  QCOMPARE(controller.modeText(), QStringLiteral("DCV"));
+  QCOMPARE(controller.numberText(), QStringLiteral("4.998"));
+  QCOMPARE(controller.unitText(), QStringLiteral("V"));
+  QVERIFY(controller.secondaryText().isEmpty());
+  QCOMPARE(controller.valueText(), QStringLiteral("4.998 V DC"));
+  QVERIFY(!controller.lastUpdateText().isEmpty());
+  QVERIFY(controller.detailText().contains(QStringLiteral("dp=3")));
+  QCOMPARE(controller.readingCount(), 1);
+  QVERIFY(readingSpy.count() >= 1);
+
+  // The split pieces reassemble the single-line mirror text.
+  QCOMPARE(controller.modeText() + QStringLiteral("  ") + controller.numberText() +
+               QStringLiteral(" ") + controller.unitText(),
+           QStringLiteral("DCV  4.998 V"));
+}
+
+void AppControllerTest::indicatorsDescribeVerifiedFlags() {
+  AppController controller;
+
+  // State word 0 with a rangeable gear means manual ranging.
+  QVERIFY(deliver(controller, frame15(2, 0, 1234)));
+  auto labels = [&controller]() {
+    QStringList out;
+    for (const QVariant& chip : controller.indicators()) {
+      out.append(chip.toMap().value(QStringLiteral("label")).toString());
+    }
+    return out;
+  };
+  QCOMPARE(labels(), QStringList{QStringLiteral("MANUAL")});
+
+  // HOLD (bit 0), REL (bit 1), AUTO (bit 2) and MinMax (bit 5).
+  Bytes flagged = frame15(2, 0, 1234);
+  flagged[12] = 0x27; // HOLD | REL | AUTO | MINMAX
+  QVERIFY(deliver(controller, flagged));
+  const QStringList flaggedLabels = labels();
+  QVERIFY(flaggedLabels.contains(QStringLiteral("HOLD")));
+  QVERIFY(flaggedLabels.contains(QStringLiteral("REL")));
+  QVERIFY(flaggedLabels.contains(QStringLiteral("MINMAX")));
+  QVERIFY(flaggedLabels.contains(QStringLiteral("AUTO")));
+  QVERIFY(!flaggedLabels.contains(QStringLiteral("MANUAL")));
+
+  // Value status 1 is the confirmed overload state.
+  Bytes overloaded = frame15(2, 0, 1234);
+  overloaded[5] = 0x10; // status bits 20..22 = 1
+  QVERIFY(deliver(controller, overloaded));
+  QCOMPARE(controller.numberText(), QStringLiteral("---"));
+  QVERIFY(labels().contains(QStringLiteral("OVERLOAD")));
+}
+
+void AppControllerTest::csvExportWritesOnlyDecodedReadings() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("readings.csv"));
+
+  AppController controller;
+  QVERIFY(deliver(controller, frame15(3, 0, 4998)));
+
+  // An oscilloscope frame carries no measurement and must not be exported.
+  Bytes oscilloscope = frame15(2, 0, 9);
+  oscilloscope[12] = 0x00;
+  oscilloscope[13] = 0x00;
+  oscilloscope[14] = 0x04; // bit 18
+  QVERIFY(deliver(controller, oscilloscope));
+
+  QCOMPARE(controller.readingCount(), 1);
+  QVERIFY(controller.exportCsv(path));
+
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const QString content = QString::fromUtf8(file.readAll());
+  const QStringList lines = content.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+  QCOMPARE(lines.size(), 2);
+  QVERIFY(lines.at(0).startsWith(QStringLiteral("received_ms,time,mode,value,unit")));
+  QVERIFY(lines.at(1).contains(QStringLiteral(",DCV,4.998,V,")));
+  QVERIFY(!content.contains(QStringLiteral("?")));
+}
+
+void AppControllerTest::captureRecordsFramedCaptureLines() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("capture.log"));
+
+  AppController controller;
+  QVERIFY(!controller.capturing());
+  QVERIFY(controller.startCapture(path));
+  QVERIFY(controller.capturing());
+  QCOMPARE(controller.capturePath(), path);
+
+  // Two frames in one notification must produce two capture lines.
+  Bytes twoFrames = frame15(3, 0, 4998);
+  const Bytes second = frame15(2, 0, 1234);
+  twoFrames.insert(twoFrames.end(), second.begin(), second.end());
+  QVERIFY(deliver(controller, twoFrames));
+
+  controller.stopCapture();
+  QVERIFY(!controller.capturing());
+  QCOMPARE(controller.capturedFrames(), 2);
+
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  const QStringList lines =
+      QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+  QCOMPARE(lines.size(), 2);
+  for (const QString& line : lines) {
+    const QStringList parts = line.split(QLatin1Char('\t'));
+    QCOMPARE(parts.size(), 4);
+    QCOMPARE(parts.at(1), QStringLiteral("15"));
+    QVERIFY(parts.at(3).contains(QStringLiteral("dp=")));
+  }
+}
+
+void AppControllerTest::keyPressIsRejectedWhenIdleOrUnverified() {
+  AppController controller;
+
+  // No connection means no writable key characteristic; this must be reported,
+  // not silently dropped.
+  QVERIFY(!controller.pressKey(2));
+  QVERIFY(controller.logText().contains(QStringLiteral("key")));
+
+  // Only codes 1..3 have a verified effect on the tested meter.
+  QVERIFY(!controller.pressKey(9));
+  QVERIFY(controller.logText().contains(QStringLiteral("code 9")));
 }
 
 QTEST_GUILESS_MAIN(AppControllerTest)

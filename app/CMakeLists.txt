@@ -6,6 +6,8 @@ qt_add_executable(ampbeam
   main.cpp
   app_controller.cpp
   app_controller.h
+  portal_file_dialog.cpp
+  portal_file_dialog.h
 )
 
 qt_add_qml_module(ampbeam
@@ -13,6 +15,10 @@ qt_add_qml_module(ampbeam
   VERSION 1.0
   QML_FILES
     Main.qml
+    AppButton.qml
+    IndicatorChip.qml
+    MeterDisplay.qml
+    DeviceDialog.qml
 )
 
 target_link_libraries(ampbeam
@@ -20,10 +26,21 @@ target_link_libraries(ampbeam
     ampbeam_ble
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::QuickDialogs2
     Qt6::Qml
 )
 
 target_compile_definitions(ampbeam PRIVATE AMPBEAM_VERSION="${PROJECT_VERSION}")
+
+# Native file chooser through the desktop portal. This covers desktop themes
+# that do not expose a native QFileDialog (for example the KDE theme shipped on
+# Kubuntu). Qt Quick's FileDialog remains the fallback when no portal is
+# present or the build has no QtDBus.
+find_package(Qt6 QUIET OPTIONAL_COMPONENTS DBus)
+if(TARGET Qt6::DBus AND NOT ANDROID)
+  target_link_libraries(ampbeam PRIVATE Qt6::DBus)
+  target_compile_definitions(ampbeam PRIVATE AMPBEAM_HAVE_QTDBUS=1)
+endif()
 
 ampbeam_set_warnings(ampbeam)
 

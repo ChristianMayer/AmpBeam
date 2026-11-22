@@ -29,6 +29,25 @@
 `core` is plain C++23 with no Qt, no I/O and no globals. `ble` owns Qt and all
 platform behaviour. `app` and `cli` are thin front-ends.
 
+## Shared front-end building blocks
+
+Both front-ends link `ampbeam_core` and share every protocol decision: decoding,
+framing, device selection (`selectMeterDevice` plus the `ble` scanner-model
+wrapper `selectMeterFromDevices`), reconnect backoff (`ReconnectPolicy`),
+mirror/display text (`monitorLine` and its split parts), CSV columns (`csvRow`)
+and capture-log lines (`captureLine`). The transport (`DeviceScanner`,
+`MultimeterClient`) is shared as well.
+
+What stays in a front-end is only the driver of that state machine and its I/O:
+`ampbeam-cli` uses a blocking `QEventLoop` for its mirror/trace actions, while
+the GUI is signal-driven and owns its files and widgets. File writing for CSV
+and capture recording is therefore repeated, but the row/line formatting is not.
+The GUI's file choosers call `org.freedesktop.portal.FileChooser` over QtDBus
+when the desktop provides it, because several Qt distributions (for example
+Kubuntu's) do not ship the `xdgdesktopportal` platform theme. Protocol-exploration
+switches (`--send`, `--challenge`, GATT UUID overrides) and offline fixture
+replay/import remain CLI-only.
+
 ## Tooling without a second language
 
 Capture parsing and fixture generation live in `ampbeam_core` and `ampbeam-cli`

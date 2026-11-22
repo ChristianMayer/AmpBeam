@@ -22,8 +22,34 @@ released yet; the first release will be tagged from the current state.
 - `ampbeam-cli`: scan, capture to TSV, front-panel key injection, command
   injection, rename, challenge probe, fixture import and offline replay, plus
   GATT UUID overrides for protocol exploration.
-- `ampbeam`: Qt Quick desktop and Android application with device scanning, live
-  formatted reading, raw hex and a bounded log.
+- `ampbeam`: Qt Quick desktop and Android application with automatic meter
+  discovery and reconnect with backoff, an explicit device picker, a split
+  meter face (mode, value, unit, verified indicators and secondary reading),
+  the verified Select/Range/Hold keys, device identity, a raw-frame live log,
+  session CSV export and capture recording.
+- `ampbeam_core`: `monitorValueText`, `monitorUnitText` and
+  `monitorSecondaryText` expose the mirror's number, unit and secondary reading
+  separately so the GUI renders the same verified text as the CLI.
+- `ampbeam_core`: `captureLine` formats the capture log line shared by the CLI
+  output and the GUI log/recording, so the importer and both front-ends agree.
+- `ampbeam_ble`: `selectMeterFromDevices` applies the core selection policy to
+the scanner model, replacing the duplicated QVariant-to-candidate translation
+in the CLI and the GUI.
+- The device picker now shows the currently connected meter and explains that a
+  connected meter may stop advertising; it does not start a scan while
+  connected, so the last visible device is not wiped by a pointless scan.
+- The GUI's CSV and capture file choosers use the XDG desktop portal directly,
+  so the desktop's native dialog works even when the distribution's Qt lacks the
+  `xdgdesktopportal` platform theme (as on Kubuntu); the Qt Quick dialog remains
+  the fallback when no portal is reachable.
+- The GUI starts the same automatic discovery/reconnect session as the CLI on
+  launch and prefers the desktop portal's native file chooser when a platform
+  theme is available. GTK desktops get `gtk3`, other desktops use
+  `xdgdesktopportal`; `QT_QPA_PLATFORMTHEME` overrides the choice.
+- Both front-ends hide Qt's informational
+  `qt.bluetooth.bluez: Missing CAP_NET_ADMIN permission...` message unless
+  `QT_LOGGING_RULES` explicitly configures the `qt.bluetooth.bluez` category;
+  the BLE transport itself is unaffected.
 - `ampbeam-cli --device auto` prefers the only device that advertises the
   meter service, falls back to the only discovered device when service UUIDs
   are unavailable, and accepts `--name` as a filter. It refuses to guess when
@@ -75,8 +101,8 @@ released yet; the first release will be tagged from the current state.
   been captured on hardware yet.
 - Front-panel keys 1 (Select), 2 (Range) and 3 (Hold) are verified. No other
   remote function has a confirmed code.
-- The application has no charting, CSV export, settings persistence or
-  reconnect handling.
+- The application has no charting or settings persistence. CSV export,
+  capture recording and reconnect handling are implemented.
 - Only a debug Android APK is produced; release signing, an adaptive launcher
   icon and store packaging are not configured.
 - Packaging for Linux (`.deb`, AppImage) is not implemented.

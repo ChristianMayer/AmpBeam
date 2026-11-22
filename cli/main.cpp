@@ -25,6 +25,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLoggingCategory>
 #include <QRandomGenerator>
 #include <QStringConverter>
 #include <QTextStream>
@@ -36,7 +37,6 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <vector>
 
 #if defined(Q_OS_UNIX)
 #include <unistd.h>
@@ -103,9 +103,9 @@ void emitFrame(qint64 receivedAtMs, const QByteArray& data, const ampbeam::Frame
     csv->write(decoded.measurement, receivedAtMs);
   }
 
-  out() << receivedAtMs << '\t' << data.size() << '\t'
-        << QString::fromStdString(ampbeam::toHex(bytes, ' ')) << '\t'
-        << QString::fromStdString(decoded.detail) << '\n';
+  out() << QString::fromStdString(ampbeam::captureLine(
+               static_cast<std::uint64_t>(qMax<qint64>(receivedAtMs, 0)), bytes, decoded.detail))
+        << '\n';
   out().flush();
 }
 
@@ -279,40 +279,16 @@ MeterScan scanForMeter(const QString& serviceUuid, const QString& nameFilter, in
   scanner.start(scanMs);
   loop.exec();
 
-  const QVariantList discovered = scanner.devices();
-  std::vector<std::string> addresses;
-  std::vector<std::string> names;
-  std::vector<std::string> services;
-  addresses.reserve(static_cast<std::size_t>(discovered.size()));
-  names.reserve(static_cast<std::size_t>(discovered.size()));
-  services.reserve(static_cast<std::size_t>(discovered.size()));
-  for (const QVariant& value : discovered) {
-    const QVariantMap device = value.toMap();
-    addresses.push_back(device.value(QStringLiteral("address")).toString().toStdString());
-    names.push_back(device.value(QStringLiteral("name")).toString().toStdString());
-    services.push_back(device.value(QStringLiteral("services")).toString().toStdString());
-  }
-
-  std::vector<ampbeam::DeviceCandidate> candidates;
-  candidates.reserve(addresses.size());
-  for (std::size_t index = 0; index < addresses.size(); ++index) {
-    candidates.push_back({addresses[index], names[index], services[index]});
-  }
-
-  const std::string service = serviceUuid.toStdString();
-  const std::string filter = nameFilter.toStdString();
-  const ampbeam::DeviceSelectionResult selection =
-      ampbeam::selectMeterDevice(candidates, service, filter);
+  const ampbeam::ble::MeterSelection selection =
+      ampbeam::ble::selectMeterFromDevices(scanner.devices(), serviceUuid, nameFilter);
 
   result.status = selection.status;
   result.matchedService = selection.matchedService;
   result.matchedName = selection.matchedName;
   result.candidateCount = selection.candidateCount;
   result.discoveredCount = selection.discoveredCount;
-  if (selection.status == ampbeam::DeviceSelectionStatus::Selected) {
-    result.address = QString::fromStdString(std::string(selection.address));
-    result.name = QString::fromStdString(std::string(selection.name));
-  }
+  result.address = selection.address;
+  result.name = selection.name;
   return result;
 }
 
@@ -510,6 +486,20 @@ int runMirror(const MirrorSettings& settings) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+  // The BlueZ management socket needs CAP_NET_ADMIN, which the CLI does not
+  // need for its D-Bus transport. Qt's informational message about the missing
+  // capability would otherwise appear on every run. Keep any other logging
+  // rules from the environment intact.
+  QString loggingRules = qEnvironmentVariable("QT_LOGGING_RULES");
+  loggingRules.replace(QLatin1Char(';'), QLatin1Char('\n'));
+  if (!loggingRules.contains(QStringLiteral("qt.bluetooth.bluez"))) {
+    if (!loggingRules.isEmpty()) {
+      loggingRules += QLatin1Char('\n');
+    }
+    loggingRules += QStringLiteral("qt.bluetooth.bluez.info=false");
+  }
+  QLoggingCategory::setFilterRules(loggingRules);
+
   QCoreApplication app(argc, argv);
   QCoreApplication::setApplicationName(QStringLiteral("ampbeam-cli"));
   QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));

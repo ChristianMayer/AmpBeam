@@ -164,6 +164,18 @@ CaptureParseResult parseCaptureLog(std::string_view text) {
   return result;
 }
 
+std::string captureLine(std::uint64_t receivedAtMs, std::span<const std::uint8_t> frame,
+                        std::string_view detail) {
+  std::string out = std::to_string(receivedAtMs);
+  out += '\t';
+  out += std::to_string(frame.size());
+  out += '\t';
+  out += toHex(frame, ' ');
+  out += '\t';
+  out += detail;
+  return out;
+}
+
 std::string toFixtureJson(const CaptureParseResult& capture, const FixtureMetadata& metadata) {
   std::string out;
   out.reserve(160 + capture.frames.size() * 48);
