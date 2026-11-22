@@ -1,0 +1,61 @@
+# Copyright (C) 2026 Christian Mayer
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds and publishes the AppImage and APK for every v* tag.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "release-${{ github.ref }}"
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    name: Release version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: "${{ steps.meta.outputs.version }}"
+    steps:
+      - id: meta
+        run: |
+          # v0.1.0 -> 0.1.0 so the asset names match project(AmpBeam VERSION ...).
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package release artifacts
+    needs: meta
+    uses: ./.github/workflows/package.yml
+    with:
+      version: "${{ needs.meta.outputs.version }}"
+      suffix: release
+    secrets: inherit
+
+  publish:
+    name: Publish GitHub release
+    needs: [meta, package]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

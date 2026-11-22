@@ -113,6 +113,10 @@ xvfb-run -a timeout 6 ./build/linux-debug/app/ampbeam
 Confirms that QML loads, the controller is registered and the window is created.
 It is a smoke test, not coverage.
 
+The distribution workflow repeats that check against the finished AppImage and
+also replays a fixture with the CLI bundled inside it. The APK is validated
+with `apksigner` and `aapt`. See [`distribution.md`](distribution.md).
+
 ## Running the suites
 
 ```bash

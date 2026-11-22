@@ -61,8 +61,9 @@ only in the explicitly unverified compatibility note in `README.md`.
 | `cli/` (`ampbeam-cli`) | Headless mirror / CSV export / scan / capture / import / replay tool. Usage: `cli/README.md`. |
 | `tests/` | White-box (`tst_core_whitebox`), fixture black box (`tst_core_blackbox`), CLI black box (`tst_cli`), transport (`tst_ble`) and controller (`tst_app`) suites, plus the hardware bench and the coverage gate. |
 | `assets/branding/` | Logo source of truth + Android icon derivation script. |
+| `packaging/` | `appimage/` and `android/` release packaging and signing scripts used by CI; see `docs/distribution.md`. |
 | `cmake/CompilerWarnings.cmake` | `ampbeam_set_warnings()` / `ampbeam_set_strict_warnings()`. |
-| `docs/` | `architecture.md`, `protocol.md`, `development.md`, `testing.md`. |
+| `docs/` | `architecture.md`, `protocol.md`, `development.md`, `testing.md`, `distribution.md`. |
 | `CHANGELOG.md` | Release history and known limitations. |
 | `.user/` | Local scratch space, ignored by git via `/.user/`. **Never commit it.** |
 
@@ -102,6 +103,10 @@ ctest --preset linux-coverage
 cmake --preset android-arm64
 cmake --build --preset android-arm64
 adb install -r build/android-arm64/app/android-build/build/outputs/apk/debug/android-build-debug.apk
+
+# Distribution artifacts (see docs/distribution.md)
+packaging/appimage/build-appimage.sh --version 0.1.0
+packaging/android/build-apk.sh --version 0.1.0
 
 # Headless GUI smoke test (no display needed)
 xvfb-run -a timeout 6 ./build/linux-debug/app/ampbeam

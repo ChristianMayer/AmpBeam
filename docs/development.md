@@ -234,7 +234,9 @@ adb install -r build/android-arm64/app/android-build/build/outputs/apk/debug/and
 Notes:
 
 * The first Android build downloads Gradle; network access is required.
-* Only a debug APK is produced. Release signing is intentionally not configured.
+* `android-arm64` produces a debug APK. The `android-release` preset produces an
+  unsigned release APK; `packaging/android/build-apk.sh` signs it for
+  distribution (see below).
 * A USB-connected device needs the usual host udev rules. If `adb devices`
   reports `no permissions`, fix the udev rule or use wireless debugging
   (`adb pair`, `adb connect`), which needs no extra configuration:
@@ -246,6 +248,89 @@ Notes:
 
 * On Android 12+ the app asks for `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` at
   runtime. If you denied them once, re-enable them in the app settings.
+
+## Packaging
+
+The release and nightly pipelines build two artifacts. User-facing install
+instructions live in [`distribution.md`](distribution.md); this section covers
+the local build steps.
+
+### Linux AppImage
+
+The AppImage is built from the `linux-release` preset. No system Qt is needed
+on the target machine, and the packaged application includes the CLI.
+
+```bash
+cmake --preset linux-release
+cmake --build --preset linux-release
+ctest --preset linux-release
+
+QT_HOST_PATH=/path/to/Qt/6.7.3/gcc_64 \
+  packaging/appimage/build-appimage.sh --version 0.1.0
+```
+
+The script installs into a private `AppDir` with
+`cmake --install`, downloads pinned `linuxdeploy` and `linuxdeploy-plugin-qt`
+AppImages into `build/appimage-tools/`, verifies their checksums and writes
+`dist/AmpBeam-<version>-x86_64.AppImage`.
+
+`QML_SOURCES_PATHS` points the Qt plugin at `app/`, so the Qt Quick modules the
+application imports are bundled. The application's own QML module is compiled
+into the binary with `RESOURCE_PREFIX "/qt/qml"`; it therefore loads
+`AmpBeam.Main` from `qrc:/qt/qml/AmpBeam/qmldir` instead of relying on the build
+directory's `AmpBeam/` folder.
+
+A headless check of the result:
+
+```bash
+xvfb-run -a timeout 8 ./dist/AmpBeam-0.1.0-x86_64.AppImage \
+  --appimage-extract-and-run
+./dist/AmpBeam-0.1.0-x86_64.AppImage --appimage-extract
+./squashfs-root/usr/bin/ampbeam-cli --replay tests/fixtures/meter-hardware-dcv.json \
+  --mirror --plain
+```
+
+The exit status `124` from `timeout` means the GUI was still running, which is
+the expected result.
+
+### Android release APK
+
+The `android-release` preset builds the same application with
+`CMAKE_BUILD_TYPE=Release` and without host tests. Qt's Android deployment
+produces an unsigned APK; `packaging/android/build-apk.sh` aligns and signs it.
+
+```bash
+export QT_ANDROID_PATH=/path/to/Qt/6.7.3/android_arm64_v8a
+export QT_HOST_PATH=/path/to/Qt/6.7.3/gcc_64
+export ANDROID_SDK_ROOT=/path/to/android-sdk
+export ANDROID_NDK_ROOT=/path/to/android-sdk/ndk/26.1.10909125
+
+packaging/android/build-apk.sh --version 0.1.0
+```
+
+The result is `dist/AmpBeam-<version>-arm64-v8a.apk`. The script uses
+`zipalign` and `apksigner` from the newest Android build-tools and verifies the
+signature afterwards. The Android `versionCode` is derived from the project
+version (`0.1.0` becomes `100`), so a release can be installed over the previous
+one.
+
+Release signing is configured through environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `AMPBEAM_ANDROID_KEYSTORE` | Path to a PKCS#12/JKS keystore. |
+| `AMPBEAM_ANDROID_KEYSTORE_BASE64` | Base64 keystore, used by CI secrets. |
+| `AMPBEAM_ANDROID_KEYSTORE_PASSWORD` | Keystore password. |
+| `AMPBEAM_ANDROID_KEY_ALIAS` | Key alias, default `ampbeam`. |
+| `AMPBEAM_ANDROID_KEY_PASSWORD` | Key password, default the store password. |
+
+Without a keystore the script generates a throwaway key. That APK installs but
+has a different signature from every other build, so an installed copy must be
+uninstalled before switching builds.
+
+The checks are mirrored in CI: `package.yml` starts the AppImage headlessly and
+verifies the APK with `apksigner` and `aapt`. The full release/nightly flow is
+described in [`distribution.md`](distribution.md).
 
 ## Troubleshooting
 

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (C) 2026 Christian Mayer
+  SPDX-License-Identifier: CC0-1.0
+
+  AppStream metadata for the desktop application. AppImage tooling and
+  software centres use it to describe the installed binary.
+-->
+<component type="desktop-application">
+  <id>ampbeam</id>
+  <name>AmpBeam</name>
+  <summary>Read Bluetooth Low Energy multimeters</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>
+      AmpBeam mirrors and plots the readings of Bluetooth Low Energy
+      multimeters that use the supported GATT profile. It shows the meter
+      face, a scrolling signal trace, the verified front-panel keys, a raw
+      frame log, CSV export and capture recording.
+    </p>
+  </description>
+  <launchable type="desktop-id">ampbeam.desktop</launchable>
+  <url type="homepage">https://github.com/ChristianMayer/AmpBeam</url>
+  <provides>
+    <binary>ampbeam</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-11-22"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

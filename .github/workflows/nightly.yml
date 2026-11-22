@@ -1,0 +1,50 @@
+# Copyright (C) 2026 Christian Mayer
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds a nightly AppImage and APK for every pull request (and for main).
+# The artifacts are attached to the workflow run; they are not published as a
+# GitHub release.
+name: Nightly
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "nightly-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  meta:
+    name: Nightly version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: "${{ steps.meta.outputs.version }}"
+      suffix: "${{ steps.meta.outputs.suffix }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: |
+          short=$(git rev-parse --short HEAD)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            number="${{ github.event.pull_request.number }}"
+            echo "version=nightly-pr${number}-${short}" >> "$GITHUB_OUTPUT"
+            echo "suffix=pr-${number}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=nightly-${short}" >> "$GITHUB_OUTPUT"
+            echo "suffix=main" >> "$GITHUB_OUTPUT"
+          fi
+
+  package:
+    name: Package nightly artifacts
+    needs: meta
+    uses: ./.github/workflows/package.yml
+    with:
+      version: "${{ needs.meta.outputs.version }}"
+      suffix: "${{ needs.meta.outputs.suffix }}"

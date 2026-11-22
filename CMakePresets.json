@@ -49,13 +49,23 @@
         "ANDROID_NDK_ROOT": "$env{ANDROID_NDK_ROOT}",
         "QT_HOST_PATH": "$env{QT_HOST_PATH}"
       }
+    },
+    {
+      "name": "android-release",
+      "displayName": "Android arm64-v8a (Release)",
+      "inherits": "android-arm64",
+      "binaryDir": "${sourceDir}/build/android-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
     { "name": "linux-debug", "configurePreset": "linux-debug" },
     { "name": "linux-release", "configurePreset": "linux-release" },
     { "name": "linux-coverage", "configurePreset": "linux-coverage" },
-    { "name": "android-arm64", "configurePreset": "android-arm64", "targets": ["apk"] }
+    { "name": "android-arm64", "configurePreset": "android-arm64", "targets": ["apk"] },
+    { "name": "android-release", "configurePreset": "android-release", "targets": ["apk"] }
   ],
   "testPresets": [
     {

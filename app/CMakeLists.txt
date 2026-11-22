@@ -10,9 +10,14 @@ qt_add_executable(ampbeam
   portal_file_dialog.h
 )
 
+# RESOURCE_PREFIX puts the generated qmldir where QQmlEngine looks for it
+# (qrc:/qt/qml). Without it the module is only found through the build
+# directory's AmpBeam/ folder, so an installed or AppImage copy cannot resolve
+# AmpBeam.Main.
 qt_add_qml_module(ampbeam
   URI AmpBeam
   VERSION 1.0
+  RESOURCE_PREFIX "/qt/qml"
   QML_FILES
     Main.qml
     AppButton.qml
@@ -91,12 +96,18 @@ if(EXISTS "${AMPBEAM_BRAND_DIR}/ampbeam.icns")
     MACOSX_BUNDLE_ICON_FILE "ampbeam.icns")
 endif()
 
+# Android requires a monotonically increasing integer version code. Map
+# 0.1.0 to 100 so a new release can be installed over the previous one.
+math(EXPR AMPBEAM_ANDROID_VERSION_CODE
+  "${PROJECT_VERSION_MAJOR} * 10000 + ${PROJECT_VERSION_MINOR} * 100 + ${PROJECT_VERSION_PATCH}")
+
 set_target_properties(ampbeam PROPERTIES
   WIN32_EXECUTABLE TRUE
   MACOSX_BUNDLE TRUE
   QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
   QT_ANDROID_MIN_SDK_VERSION 24
   QT_ANDROID_TARGET_SDK_VERSION 34
+  QT_ANDROID_VERSION_CODE "${AMPBEAM_ANDROID_VERSION_CODE}"
   QT_ANDROID_VERSION_NAME "${PROJECT_VERSION}"
 )
 
@@ -109,4 +120,11 @@ install(TARGETS ampbeam
 # Desktop entry: resolves Icon=ampbeam through the icon theme once installed.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/ampbeam.desktop"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
+)
+
+# AppStream metadata so software centres can describe the installed
+# application. The AppImage script also installs a legacy *.appdata.xml copy,
+# which older AppImage tooling looks for.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/ampbeam.metainfo.xml"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo"
 )

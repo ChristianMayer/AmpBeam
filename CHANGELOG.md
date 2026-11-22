@@ -104,6 +104,27 @@ in the CLI and the GUI.
 - Test suites: white-box core, fixture black-box, CLI black-box, transport and
   controller tests, plus the hardware bench sweep.
 - 100% line coverage of `core/`, enforced by `ctest --preset linux-coverage`.
+- Linux AppImage and Android APK distribution: every `v*` tag publishes
+  `AmpBeam-<version>-x86_64.AppImage`, `AmpBeam-<version>-arm64-v8a.apk` and a
+  `SHA256SUMS` file with the GitHub release. The AppImage bundles Qt and the
+  `ampbeam-cli` tool; the release APK is aligned and signed with `apksigner`,
+  and its Android `versionCode` is derived from the project version (`0.1.0`
+  becomes `100`).
+- A nightly workflow builds both artifacts for every pull request (and every
+  push to `main`) and attaches them to the workflow run.
+- `packaging/appimage/build-appimage.sh` and `packaging/android/build-apk.sh`
+  reproduce the CI artifacts locally; `android-release` builds the signed APK,
+  and `docs/distribution.md` documents installation, signing and the release
+  process.
+- AppStream metadata (`app/ampbeam.metainfo.xml`) and the legacy
+  `ampbeam.appdata.xml` name for software centres and AppImage tooling.
+
+### Fixed
+
+- An installed or AppImage copy could not load `AmpBeam.Main`: the QML module
+  was only resolvable through the build tree's `AmpBeam/` directory. The module
+  now uses `RESOURCE_PREFIX "/qt/qml"`, so `qmldir` and the QML types are found
+  in the application's own resources.
 
 ### Known limitations
 

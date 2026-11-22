@@ -53,8 +53,11 @@ capture*.log
 # ---------------------------------------------------------------------------
 # Generated artifacts and tool output
 # ---------------------------------------------------------------------------
+/dist/
+/squashfs-root/
 *.apk
 *.aab
+*.AppImage
 *.keystore
 *.jks
 *.gcda

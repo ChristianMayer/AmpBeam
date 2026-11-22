@@ -1,0 +1,178 @@
+# Copyright (C) 2026 Christian Mayer
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds the distribution artifacts: the Linux AppImage and the Android APK.
+# Called by release.yml (tagged releases) and nightly.yml (pull requests).
+name: Package
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version text used in the artifact file names
+        required: true
+        type: string
+      suffix:
+        description: Suffix that identifies this build in artifact names
+        required: true
+        type: string
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.3"
+          modules: "qtconnectivity"
+          cache: true
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build xvfb xauth \
+            libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xkb1
+
+      - name: Export Qt host path for CMake presets
+        run: echo "QT_HOST_PATH=${QT_ROOT_DIR}" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build --preset linux-release
+
+      - name: Test
+        run: ctest --preset linux-release
+
+      - name: Package AppImage
+        run: packaging/appimage/build-appimage.sh --version "${{ inputs.version }}"
+
+      - name: Verify the AppImage
+        run: |
+          set +e
+          xvfb-run -a timeout 8 ./dist/AmpBeam-*.AppImage --appimage-extract-and-run \
+            > /tmp/ampbeam-appimage.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/ampbeam-appimage.log
+          # 124 means the GUI was still running when the timeout fired.
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            echo "::error::AppImage exited with status $status"
+            exit 1
+          fi
+          # A missing Wayland plugin is fine: the AppImage falls back to xcb
+          # under Xvfb. Only an unusable xcb plugin or a QML module failure is
+          # fatal.
+          if grep -qE 'Could not (load|find) the Qt platform plugin "xcb"|no Qt platform plugin could be initialized|contains no type named|QQmlApplicationEngine failed' \
+              /tmp/ampbeam-appimage.log; then
+            echo "::error::The AppImage could not start its QML user interface"
+            exit 1
+          fi
+
+      - name: Verify the bundled CLI
+        run: |
+          ./dist/AmpBeam-*.AppImage --appimage-extract > /dev/null
+          ./squashfs-root/usr/bin/ampbeam-cli \
+            --replay tests/fixtures/meter-hardware-dcv.json --mirror --plain \
+            > /tmp/ampbeam-cli.log
+          grep -q '^DCV' /tmp/ampbeam-cli.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ampbeam-appimage-${{ inputs.suffix }}
+          path: dist/AmpBeam-*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  apk:
+    name: Android APK
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Qt (host and Android)
+        id: qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.3"
+          target: "android"
+          arch: "android_arm64_v8a"
+          modules: "qtconnectivity"
+          cache: true
+
+      - name: Export Qt paths for CMake presets
+        run: |
+          if [ -z "${QT_HOST_PATH:-}" ]; then
+            echo "::error::install-qt-action did not set QT_HOST_PATH"
+            exit 1
+          fi
+          echo "QT_ANDROID_PATH=${QT_ROOT_DIR}" >> "$GITHUB_ENV"
+          echo "QT_HOST_PATH=${QT_HOST_PATH}" >> "$GITHUB_ENV"
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK packages
+        run: |
+          sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.1.10909125"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/26.1.10909125" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Package APK
+        env:
+          AMPBEAM_ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          AMPBEAM_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          AMPBEAM_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          AMPBEAM_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: packaging/android/build-apk.sh --version "${{ inputs.version }}"
+
+      - name: Verify the APK
+        run: |
+          apk=$(ls dist/AmpBeam-*.apk)
+          tools="$ANDROID_SDK_ROOT/build-tools/34.0.0"
+          "$tools/apksigner" verify --verbose "$apk"
+          "$tools/aapt" dump badging "$apk" > /tmp/ampbeam-badging.txt
+          grep -q "package: name='org.ampbeam.app'" /tmp/ampbeam-badging.txt
+          grep -q "native-code: 'arm64-v8a'" /tmp/ampbeam-badging.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ampbeam-apk-${{ inputs.suffix }}
+          path: dist/AmpBeam-*.apk
+          if-no-files-found: error
+          retention-days: 14

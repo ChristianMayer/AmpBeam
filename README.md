@@ -50,6 +50,24 @@ them has been verified in this project**. Use `ampbeam-cli --scan` and a short
 capture to check whether a device matches [docs/protocol.md](docs/protocol.md);
 series 61 is the only series whose 15 byte format has been confirmed.
 
+## Download and install
+
+Every tagged release publishes two installable files on the
+[releases page](https://github.com/ChristianMayer/AmpBeam/releases):
+
+| Platform | File | Install |
+| --- | --- | --- |
+| Linux x86_64 | `AmpBeam-<version>-x86_64.AppImage` | `chmod +x` it and run it. No system Qt needed. |
+| Android arm64-v8a | `AmpBeam-<version>-arm64-v8a.apk` | `adb install -r`, or open it on the device and allow unknown apps. |
+
+Each release also contains `SHA256SUMS`. Every pull request builds the same two
+artifacts as a nightly and attaches them to the workflow run (**Nightly** →
+**Artifacts**), kept for 14 days.
+
+[`docs/distribution.md`](docs/distribution.md) covers the requirements, FUSE-free
+AppImage mode, the bundled `ampbeam-cli`, Android permissions, signing and
+troubleshooting.
+
 ## What is in here
 
 | Component | Description |
@@ -113,12 +131,25 @@ Android:
 
 ```bash
 cmake --preset android-arm64
-cmake --build --preset android-arm64         # produces an APK
+cmake --build --preset android-arm64         # produces a debug APK
 adb install -r build/android-arm64/app/android-build/build/outputs/apk/debug/android-build-debug.apk
 ```
 
-Linux Bluetooth requirements and troubleshooting are documented in
-[docs/development.md](docs/development.md).
+Packaging a release build locally:
+
+```bash
+# AppImage (needs QT_HOST_PATH)
+cmake --preset linux-release
+cmake --build --preset linux-release
+packaging/appimage/build-appimage.sh --version 0.1.0
+
+# Signed release APK (needs the Android SDK/NDK, see docs/development.md)
+packaging/android/build-apk.sh --version 0.1.0
+```
+
+Both scripts write to `dist/`; the CI packaging pipeline is described in
+[docs/distribution.md](docs/distribution.md). Linux Bluetooth requirements and
+troubleshooting are documented in [docs/development.md](docs/development.md).
 
 ### Desktop application
 
@@ -284,7 +315,8 @@ ble/                Qt Bluetooth transport
 app/                Qt Quick application, QML and Android manifest
 cli/                ampbeam-cli capture, import and replay tool
 tests/              white-box, black-box, CLI, transport and controller suites
-docs/               architecture, protocol notes, development and testing guide
+packaging/          AppImage and APK build/sign scripts used by the release CI
+docs/               architecture, protocol, development, testing and distribution guides
 assets/branding/    official logo and icon placement rules
 AGENTS.md           agent and contributor operating manual
 CHANGELOG.md        release history and known limitations
@@ -299,7 +331,8 @@ New to the codebase — human or agent — start with [`AGENTS.md`](AGENTS.md).
 2. Verify a second series or frame format against hardware before claiming it.
 3. Investigate the commands the meter answers on its command characteristic.
 4. Add live charting and CSV export to the app.
-5. Package: `.deb`/AppImage for Linux, signed APK/AAB for Android.
+5. Add a `.deb`, a Flatpak and an AAB for store distribution on top of the
+   existing AppImage and APK.
 
 ## Legal
 
