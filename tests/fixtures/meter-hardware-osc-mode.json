@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "meter-hardware-osc-mode",
+  "createdAt": "2026-11-21T21:52:12.845Z",
+  "source": "capture: oscilloscope mode (state bit 18), 5 representative frames",
+  "frames": [
+    { "receivedMs": 1795297802380, "hex": "9B 03 F0 D7 04 80 A0 01 F0 00 00 00 00 00 04" },
+    { "receivedMs": 1795297802590, "hex": "9B 03 F0 D7 04 80 A0 01 F0 00 00 00 00 00 04" },
+    { "receivedMs": 1795297802786, "hex": "9B 03 F0 D7 04 80 A0 01 F0 00 00 00 00 00 04" },
+    { "receivedMs": 1795297802980, "hex": "9B 03 F0 D7 04 80 A0 01 F0 00 00 00 00 00 04" },
+    { "receivedMs": 1795297803190, "hex": "9B 03 F0 D7 04 80 A0 01 F0 00 00 00 00 00 04" }
+  ]
+}

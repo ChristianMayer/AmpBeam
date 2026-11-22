@@ -1,0 +1,65 @@
+# Changelog
+
+All notable changes to AmpBeam are documented in this file. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing has been
+released yet; the first release will be tagged from the current state.
+
+## [Unreleased]
+
+### Added
+
+- `ampbeam_core`: dependency-free C++23 measurement model (`Measurement`, `Unit`,
+  `Flags`, `SecondaryReading`), hex helpers, capture-log parsing, JSON fixture
+  import/export, unique-device selection and the `FrameDecoder` interface.
+- `MeterDecoder` for the 15 byte frame layout: DCV, ACV, DCA, ACA, resistance,
+  continuity, diode, capacitance, frequency with duty cycle or AC voltage, NCV
+  field levels, MinMax MAX, HOLD, auto-range, overload, oscilloscope-mode
+  detection and the confirmed decimal point codes 0..4.
+- `ampbeam_ble`: Qt 6 transport with device discovery, connection state machine,
+  notification subscription, front-panel key writes, command writes and the
+  device-info read.
+- `ampbeam-cli`: scan, capture to TSV, front-panel key injection, command
+  injection, rename, challenge probe, fixture import and offline replay, plus
+  GATT UUID overrides for protocol exploration.
+- `ampbeam`: Qt Quick desktop and Android application with device scanning, live
+  formatted reading, raw hex and a bounded log.
+- `ampbeam-cli --device auto` prefers the only device that advertises the
+  meter service, falls back to the only discovered device when service UUIDs
+  are unavailable, and accepts `--name` as a filter. It refuses to guess when
+  several devices are possible.
+- MinMax view decoding: state bit 5 is named `MINMAX`, the second pair is
+  documented as MAX, and hardware fixtures cover changing DC mV and AC mV
+  readings. MIN and AVG are not present in the frame.
+- REL mode: state bit 1 is named `REL`, `Measurement::flags.relative` is set and
+  the second pair is documented as the stored reference. Covered by a hardware
+  fixture.
+- The Hz/V view is decoded: frequency is the primary value and AC voltage
+  (millivolt range) is the second measurement. Covered by a hardware fixture.
+- Linux: the transport holds a short BlueZ LE discovery open while connecting
+  and waits for the `org.bluez.Device1` object, so BlueZ 5.72 does not fail with
+  `Remote device cannot be found`. Other platforms use a no-op stub.
+- Capture-derived fixtures for DCV, high-voltage DCV, HOLD/millivolt, AC current,
+  frequency with duty cycle or AC voltage, resistance overload, continuity, NCV,
+  oscilloscope mode, MinMax and the full function/range sweeps. Every fixture is
+  a real capture from the tested meter.
+- Test suites: white-box core, fixture black-box, CLI black-box, transport and
+  controller tests, plus the hardware bench sweep.
+- 100% line coverage of `core/`, enforced by `ctest --preset linux-coverage`.
+
+### Known limitations
+
+- Only series 61 with firmware 1.4.0 has been tested. Other series ids and
+  other frame formats are not implemented.
+- The model and decoder contain only confirmed functions, gears, statuses, state
+  bits and decimal point codes. Unsupported functions (temperature, hFE, power,
+  4~20 mA, motor), their units and unconfirmed flags are not implemented. Every
+  SI magnitude of the confirmed gears is mapped, but not every magnitude has
+  been captured on hardware yet.
+- Front-panel keys 1 (Select), 2 (Range) and 3 (Hold) are verified. No other
+  remote function has a confirmed code.
+- The application has no charting, CSV export, settings persistence or
+  reconnect handling.
+- Only a debug Android APK is produced; release signing, an adaptive launcher
+  icon and store packaging are not configured.
+- Packaging for Linux (`.deb`, AppImage) is not implemented.

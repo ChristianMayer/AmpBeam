@@ -1,0 +1,77 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "$env{QT_HOST_PATH}",
+        "AMPBEAM_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux desktop (Debug)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux desktop (RelWithDebInfo)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "linux-coverage",
+      "displayName": "Linux desktop (Debug, gcov)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "AMPBEAM_ENABLE_COVERAGE": "ON"
+      }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64-v8a",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/android-arm64",
+      "toolchainFile": "$env{QT_ANDROID_PATH}/lib/cmake/Qt6/qt.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "AMPBEAM_BUILD_TESTS": "OFF",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-34",
+        "ANDROID_SDK_ROOT": "$env{ANDROID_SDK_ROOT}",
+        "ANDROID_NDK_ROOT": "$env{ANDROID_NDK_ROOT}",
+        "QT_HOST_PATH": "$env{QT_HOST_PATH}"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-debug", "configurePreset": "linux-debug" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "linux-coverage", "configurePreset": "linux-coverage" },
+    { "name": "android-arm64", "configurePreset": "android-arm64", "targets": ["apk"] }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-coverage",
+      "configurePreset": "linux-coverage",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

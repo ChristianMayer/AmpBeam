@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160">
+  <defs>
+    <linearGradient id="cardBg" x1="0" y1="0" x2="640" y2="160" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B1220"/>
+      <stop offset="100%" stop-color="#132038"/>
+    </linearGradient>
+    <linearGradient id="legGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#CBD5E1"/>
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="50%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="640" height="160" rx="24" fill="url(#cardBg)"/>
+  <rect x="1" y="1" width="638" height="158" rx="23" fill="none" stroke="#38BDF8" stroke-opacity="0.18" stroke-width="2"/>
+
+  <!-- Emblem scaled to fit left side -->
+  <g transform="translate(24, 16) scale(0.25)">
+    <g fill="none" stroke="#22D3EE" stroke-width="16" stroke-linecap="round">
+      <path d="M 224.89 200.89 A 44 44 0 0 1 287.11 200.89"/>
+      <path d="M 200.85 176.85 A 78 78 0 0 1 311.15 176.85" opacity="0.8"/>
+      <path d="M 176.80 152.80 A 112 112 0 0 1 335.20 152.80" opacity="0.6"/>
+    </g>
+    <path d="M 168 386 L 256 232 L 344 386"
+          fill="none" stroke="url(#legGrad)" stroke-width="28"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 124 326 L 210 326 L 230 290 L 256 362 L 282 290 L 302 326 L 388 326"
+          fill="none" stroke="#0F182B" stroke-width="24"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 124 326 L 210 326 L 230 290 L 256 362 L 282 290 L 302 326 L 388 326"
+          fill="none" stroke="url(#waveGrad)" stroke-width="12"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="168" y="88"
+        font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif"
+        font-size="52" font-weight="800" letter-spacing="-1" fill="#F8FAFC">
+    Amp<tspan fill="#22D3EE">Beam</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="170" y="118"
+        font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif"
+        font-size="14" font-weight="600" letter-spacing="2.4" fill="#94A3B8">
+    BLUETOOTH MULTIMETER &amp; OSCILLOSCOPE
+  </text>
+</svg>

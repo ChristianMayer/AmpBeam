@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B1220"/>
+      <stop offset="100%" stop-color="#132038"/>
+    </linearGradient>
+
+    <linearGradient id="legGrad" x1="256" y1="220" x2="256" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#CBD5E1"/>
+    </linearGradient>
+
+    <linearGradient id="beamGrad" x1="176" y1="112" x2="336" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+
+    <linearGradient id="waveGrad" x1="124" y1="326" x2="388" y2="326" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="50%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="squircle">
+      <rect width="512" height="512" rx="112"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <!-- Oscilloscope screen background -->
+    <rect width="512" height="512" fill="url(#bgGrad)"/>
+
+    <!-- Subtle graticule grid -->
+    <g stroke="#38BDF8" stroke-opacity="0.08" stroke-width="1.5">
+      <line x1="128" y1="0" x2="128" y2="512"/>
+      <line x1="192" y1="0" x2="192" y2="512"/>
+      <line x1="256" y1="0" x2="256" y2="512"/>
+      <line x1="320" y1="0" x2="320" y2="512"/>
+      <line x1="384" y1="0" x2="384" y2="512"/>
+      <line x1="0" y1="128" x2="512" y2="128"/>
+      <line x1="0" y1="192" x2="512" y2="192"/>
+      <line x1="0" y1="256" x2="512" y2="256"/>
+      <line x1="0" y1="320" x2="512" y2="320"/>
+      <line x1="0" y1="384" x2="512" y2="384"/>
+    </g>
+
+    <!-- Wireless beam arcs -->
+    <g fill="none" stroke="url(#beamGrad)" stroke-width="14" stroke-linecap="round" filter="url(#glow)">
+      <path d="M 224.89 200.89 A 44 44 0 0 1 287.11 200.89"/>
+      <path d="M 200.85 176.85 A 78 78 0 0 1 311.15 176.85" opacity="0.82"/>
+      <path d="M 176.80 152.80 A 112 112 0 0 1 335.20 152.80" opacity="0.62"/>
+    </g>
+
+    <!-- Stylized "A" frame -->
+    <path d="M 168 386 L 256 232 L 344 386"
+          fill="none"
+          stroke="url(#legGrad)"
+          stroke-width="26"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Cutout gap behind waveform for crisp layering -->
+    <path d="M 124 326 L 210 326 L 230 290 L 256 362 L 282 290 L 302 326 L 388 326"
+          fill="none"
+          stroke="#101A2E"
+          stroke-width="22"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Live oscilloscope crossbar pulse -->
+    <path d="M 124 326 L 210 326 L 230 290 L 256 362 L 282 290 L 302 326 L 388 326"
+          fill="none"
+          stroke="url(#waveGrad)"
+          stroke-width="11"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          filter="url(#glow)"/>
+  </g>
+</svg>

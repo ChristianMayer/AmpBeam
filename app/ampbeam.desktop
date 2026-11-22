@@ -1,0 +1,14 @@
+# Copyright (C) 2026 Christian Mayer
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# FreeDesktop entry so the installed application appears in the menu.
+[Desktop Entry]
+Type=Application
+Name=AmpBeam
+GenericName=AmpBeam
+Comment=Read Bluetooth Low Energy multimeters that use the supported GATT profile
+Exec=ampbeam
+Icon=ampbeam
+Terminal=false
+Categories=Utility;Electronics;
+Keywords=multimeter;bluetooth;ble;measurement;voltmeter;

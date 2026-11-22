@@ -1,0 +1,15 @@
+# Files that must have 100% line coverage under `ctest --preset linux-coverage`.
+#
+# Add a file here only when a test can execute every line without hardware.
+# `core` qualifies in full. The CLI's offline paths are covered by `tst_cli`, but
+# its BLE session code lives in the same translation unit and needs an adapter,
+# so `cli/main.cpp` is reported, not gated. The transport and QML shell are
+# likewise reported (see docs/testing.md).
+#
+# One source path per line, relative to the repository root.
+core/src/capture.cpp
+core/src/decoder.cpp
+core/src/hex.cpp
+core/src/measurement.cpp
+core/src/meter.cpp
+core/src/selection.cpp

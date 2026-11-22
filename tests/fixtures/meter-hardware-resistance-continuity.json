@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "name": "meter-hardware-resistance-continuity",
+  "createdAt": "2026-11-21T23:51:59.945Z",
+  "source": "capture: resistance overload switching to continuity with the Select key, open probes (OL in both)",
+  "frames": [
+    {
+      "receivedMs": 1795305058050,
+      "hex": "32 01 F0 9F 60 10 33 00 F0 00 00 00 04 00 00"
+    },
+    {
+      "receivedMs": 1795305058245,
+      "hex": "32 01 F0 9F 60 10 33 00 F0 00 00 00 04 00 00"
+    },
+    {
+      "receivedMs": 1795305058456,
+      "hex": "32 01 F0 69 60 10 33 00 F0 00 00 00 04 00 00"
+    },
+    {
+      "receivedMs": 1795305058649,
+      "hex": "32 01 F0 9F 60 10 33 00 F0 00 00 00 04 00 00"
+    },
+    {
+      "receivedMs": 1795305059054,
+      "hex": "E1 02 F0 D0 07 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305059249,
+      "hex": "E1 02 F0 D0 07 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305059444,
+      "hex": "E1 02 F0 D0 07 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305059653,
+      "hex": "E1 02 F0 D0 07 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305059848,
+      "hex": "E1 02 F0 D0 07 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305107655,
+      "hex": "E1 02 F0 7A 2A 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305107850,
+      "hex": "E1 02 F0 7A 2A 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305119654,
+      "hex": "E1 02 F0 7A 2A 10 23 00 F0 00 00 00 00 00 00"
+    },
+    {
+      "receivedMs": 1795305119865,
+      "hex": "E1 02 F0 7A 2A 10 23 00 F0 00 00 00 00 00 00"
+    }
+  ]
+}

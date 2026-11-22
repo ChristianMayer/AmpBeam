@@ -1,0 +1,29 @@
+root = true
+
+# Indentation policy: two spaces, never tabs. See docs/development.md for the
+# rationale and the language-specific exceptions listed below.
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Recipe lines must start with a tab; the make format requires it.
+[Makefile]
+indent_style = tab
+
+# PEP 8 prescribes four spaces for Python. Official language practice wins.
+[*.py]
+indent_size = 4
+
+# Markdown uses two trailing spaces as a hard line break.
+[*.md]
+trim_trailing_whitespace = false
+
+# Local scratch material is analysed, never edited.
+[.user/**]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_size = unset
